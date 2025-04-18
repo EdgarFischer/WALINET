@@ -1,0 +1,26 @@
+model_name: EXP_1_Hauke
+path_to_model: models/EXP_1_Hauke/
+path_to_data: PaulTrainData/
+train_subjects: ['3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_05_A_1_2024-09-02_L2_0p0005', '3DMRSIMAP_Vol_06_A_1_2024-08-22_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005', '3DMRSIMAP_Vol_09_A_1_2024-09-03_L2_0p0005']
+val_subjects: ['3DMRSIMAP_Vol_06_A_1_2024-08-22_L2_0p0005']
+gpu: 1
+batch_size: 1000
+num_worker: 15
+lr: 0.001
+epochs: 2000
+verbose: False
+n_batches: -1
+n_val_batches: -1
+data_version: v4_4
+milestones: [400, 700, 1000, 1300, 1500]
+gamma: 0.25
+nLayers: 4
+nFilters: 8
+in_channels: 2
+out_channels: 2
+dropout: 0.0
+clean_model: True
+train: True
+predict: False
+preload: False
+preload_model: 

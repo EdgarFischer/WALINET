@@ -1,0 +1,26 @@
+model_name: EXP_2p2
+path_to_model: /workspace/walinet/models/EXP_2p2/
+path_to_data: /workspace/walinet/PaulTrainData/
+train_subjects: ['3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_05_A_1_2024-09-02_L2_0p0005', '3DMRSIMAP_Vol_06_A_1_2024-08-22_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005', '3DMRSIMAP_Vol_09_A_1_2024-09-03_L2_0p0005']
+val_subjects: ['3DMRSIMAP_Vol_06_A_1_2024-08-22_L2_0p0005']
+gpu: 2
+batch_size: 256
+num_worker: 15
+lr: 0.0001
+epochs: 1000
+verbose: False
+n_batches: -1
+n_val_batches: -1
+data_version: v3_2
+milestones: [400, 600, 800]
+gamma: 0.25
+nLayers: 4
+nFilters: 8
+in_channels: 2
+out_channels: 2
+dropout: 0.0
+clean_model: True
+train: True
+predict: False
+preload: True
+preload_model: EXP_2
