@@ -1,3 +1,7 @@
+To do:
+    - Adjust simulation parameters
+    - B0 correction?
+
 E Mail from Bernie
 
 Hi,

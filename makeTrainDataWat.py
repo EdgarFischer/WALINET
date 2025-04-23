@@ -1,4 +1,3 @@
-#pip install h5py nibabel pandas glob2 regex
 import numpy as np
 import matplotlib.pyplot as plt
 import h5py
@@ -39,8 +38,8 @@ minFreq = -150 # -150Hz(7T) # +-0.5ppm
 maxFreq = 150 # 150
 parallel_jobs = 20
 
-bandwidth = 3000 # 3khz
-dwell_time = 1/bandwidth
+bandwidth = 2778 # Vienna: 2778 Paul: 3000
+dwell_time = 1/bandwidth # Vienna 360000 nano seconds = 3.6*10⁻4 seconds
 
 # Simulation
 nSpectra=20
@@ -50,8 +49,8 @@ MaxLipidScaling=70
 MaxSNR=10
 MinSNR=1
 
-N=960
-NMRFreq= 297189866.0 #127.7 *10**6 #297189866.0 #
+N= 840 # This is FID length. Vienna: 840, Paul: 960
+NMRFreq= 297222931.0 # (Lamor frequeny) Vienna : 297222931, Paul: 297189866
 sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
 
 MaxAcquDelay=0.002
