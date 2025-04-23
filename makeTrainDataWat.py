@@ -10,6 +10,9 @@ import re
 import os
 import scipy.ndimage
 import scipy.linalg
+from pathlib import Path
+
+os.chdir(Path(__file__).parent)
 
 from joblib import Parallel, delayed
 from tqdm import tqdm
@@ -20,16 +23,11 @@ from itertools import product
 # v2 Test
 # v3 First Dataset
 
-version='v_hauke_test_water'
-path = 'PaulTrainData/'
-
+version='v_1.0'
+path = 'data/'
 
 #subjects = ['/3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005'] #'3DMRSIMAP_Vol_10_A_1_2024-09-04_L2_0p0005','3DMRSIMAP_Vol_16_A_1_2024-09-05_L2_0p0005'
-subjects = ['3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005']#,
-            #'3DMRSIMAP_Vol_05_A_1_2024-09-02_L2_0p0005',
-            #'3DMRSIMAP_Vol_06_A_1_2024-08-22_L2_0p0005',
-            #'3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005',
-            #'3DMRSIMAP_Vol_09_A_1_2024-09-03_L2_0p0005']
+subjects = ['Vol6','Vol7']
 
 # Water Removal
 b_RemWat = True
@@ -60,113 +58,22 @@ MaxPeak_Width=100#20
 
 
 for sub in subjects:
-    p_data = path + sub + '/TESTING_beforeLipid.mat'
-    p_cc = path + sub + '/CoilCombined.h5'
-    p_wat = path + sub + '/WaterReference.mat'
+    p_mask= path + sub + '/masks/brain_mask.npy'
+    p_cc = path + sub + '/OriginalData/data.npy' # coil combined reconstructed data
+    p_scalp_mask = path + sub + '/masks/lipid_mask.npy'
     p_save = path + sub + '/'
 
     #####################
     ##### Load Data #####
     #####################
 
-    fh = h5py.File(p_data,'r')
-    #csi_crrrt = np.array(fh['csi'])
-    #csi_crrrt = csi_crrrt['real']+1j*csi_crrrt['imag']
-    #csi_crrrt = np.transpose(csi_crrrt, axes=(4,3,2,1,0)) # (32, 64, 64, 39, 960) (coils, xdim, ydim, slices, time)
-    #print(csi_crrrt.shape)
+    brainmask = np.load(p_mask)  #Hauke: That should be the brain mask
 
-    mask = np.array(fh['mask'])  #Hauke: That should be the brain mask
-    mask = np.transpose(mask, axes=(2,1,0))
-    #headmask = np.ones((64,64,39))
+    csi_rrrt = np.load(p_cc)
 
+    skmask = np.load(p_scalp_mask)  # scalp mask / lipid mask
 
-    #fh_wat = scipy.io.loadmat(p_wat)
-    #weights = fh_wat['weights']  # (32, 64, 64, 39) (coils, xdim, ydim, slices)
-
-    fh_cc = h5py.File(p_cc,'r')
-    csi_rrrt = np.array(fh_cc['csi_cc_rrrt'])
-
-
-    ############################
-    ##### Coil Combination #####
-    ############################
-
-    #csi_rrrt = np.sum(csi_crrrt * weights[:,:,:,:,None], axis=0)
-
-    ###########################
-    ##### Mask Generation #####
-    ###########################
-
-    ### Brainmask ###
-    brainmask = mask
-
-    pad=3
-    ite=2
-    tmp = brainmask
-    tmp = np.pad(tmp, [(pad, pad), (pad, pad), (pad, pad)])
-    tmp = scipy.ndimage.binary_dilation(tmp, iterations=ite)
-    brainmask += tmp[pad:-pad,pad:-pad,pad:-pad]
-    brainmask[brainmask>=1]=1
-
-    brainmask[:,:,:10]=0
-
-
-
-    if False:
-        nuisance_rrr = np.sum(np.abs(csi_rrrt), axis=-1)
-        fig, ax = plt.subplots(8, 5, figsize=(10,20))
-        for i in range(8):
-            for ii in range(5):
-                sl = i*5 + ii
-                if sl<39:
-                    ax[i,ii].imshow(nuisance_rrr[:,:,sl], vmax=12570230000000)
-                    ax[i,ii].imshow(brainmask[:,:,sl], cmap='Reds', alpha=0.5)
-        fig.tight_layout()
-        plt.show()
-
-
-
-    ### Headmask ###
-    nuisance_rrr = np.sum(np.abs(csi_rrrt), axis=-1)
-
-    x, y = np.indices((64, 64))
-    circ = (x-32)**2+(y-32)**2
-    thresh = 1000
-    circ[circ<=thresh]=1
-    circ[circ>thresh]=0
-
-    headmask = circ[:,:,None]*nuisance_rrr
-
-    thresh2 = 9*10**11
-    headmask[headmask<thresh2] = 0
-    headmask[headmask>=thresh2] = 1
-
-    pad=10
-    ite=8
-    for sl in range(39):
-        tmp = headmask[:,:,sl]
-        tmp = np.pad(tmp, [(pad, pad), (pad, pad)])
-        tmp = scipy.ndimage.binary_dilation(tmp, iterations=ite)
-        tmp = scipy.ndimage.binary_erosion(tmp, iterations=ite)
-        headmask[:,:,sl] += tmp[pad:-pad,pad:-pad]
-    headmask[headmask>=1]=1
-
-    pad=10
-    ite=8
-    tmp = headmask
-    tmp = np.pad(tmp, [(pad, pad), (pad, pad), (pad, pad)])
-    tmp = scipy.ndimage.binary_dilation(tmp, iterations=ite)
-    tmp = scipy.ndimage.binary_erosion(tmp, iterations=ite)
-    headmask += tmp[pad:-pad,pad:-pad,pad:-pad]
-    headmask[headmask>=1]=1
-
-    headmask[:,:,:10]=0
-
-    ### Scalpmask ###
-    skmask = headmask - brainmask
-
-
-
+    headmask = brainmask + skmask
 
     #########################
     ##### Water Removal #####
@@ -275,9 +182,9 @@ for sub in subjects:
     #imagesl_rrrt = image_rrrt[:,:,20,None]
     #skmasksl = skmask[:,:,20,None]
 
-    Data_rrrf = np.fft.fftshift(np.fft.fft(csi_rrrt, axis=-1), axes=-1)
-    #Data_rrrf = np.fft.fftshift(np.fft.fft(image_rrrt, axis=-1), axes=-1)
-    #Data_rrrf = np.fft.fftshift(np.fft.fft(imagesl_rrrt, axis=-1), axes=-1)
+    #Data_rrrf = np.fft.fftshift(np.fft.fft(csi_rrrt, axis=-1), axes=-1) # use water unsupressed data
+    Data_rrrf = np.fft.fftshift(np.fft.fft(image_rrrt, axis=-1), axes=-1) # use water supressed data
+    #Data_rrrf = np.fft.fftshift(np.fft.fft(imagesl_rrrt, axis=-1), axes=-1) # use water supressed data, just one slice for testing
 
     s = Data_rrrf.shape
     beta=1E-29 * 3 #beta=1E-24 * 3 #0.938
@@ -469,13 +376,9 @@ for sub in subjects:
     spectra = water_rf+lipid_rf+MetabSpectrum
     lipid_proj = np.matmul(spectra, LipidProj_Operator_ff)
 
-    
-
-
     if not os.path.isdir(p_save+'TrainData/'):
         os.mkdir(p_save+'TrainData/')
 
-    
     hf = h5py.File(p_save+'TrainData/'+'TrainData_'+version+'.h5', 'w')
     hf.create_dataset('metab', data=MetabSpectrum)
     hf.create_dataset('water', data=water_rf)

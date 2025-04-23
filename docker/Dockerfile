@@ -14,6 +14,7 @@ RUN apt-get update && \
       git \
       nano \
       bash \
+      procps \
       bash-completion && \
     # bash-completion global aktivieren
     echo "if [ -f /etc/bash_completion ]; then . /etc/bash_completion; fi" \
