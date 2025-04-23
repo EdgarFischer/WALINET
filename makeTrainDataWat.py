@@ -392,17 +392,7 @@ for sub in subjects:
                     if (mode[Nuc, 0] > 0.0) & (mode[Nuc, 0] < 4.5)  : # only for the window of interest 
                         TempMetabData[f, :] += mode[Nuc, 1][...,None] * np.exp(1j * mode[Nuc, 2][...,None]) * np.exp(2 * np.pi * 1j * (t + AcquDelay[n])  * (Freq[Nuc]))
 
-        TimeSerieClean=0*TimeSerieCleanOverall Assessment
-
-    Strengths:
-    The simulation is quite comprehensive for generating training data for tasks like water and lipid removal or metabolite quantification. It captures the main features: realistic spectral shapes (via mode files), natural variability in amplitudes and phases, and realistic line broadening using a Voigt-like model. The addition of noise in the time domain is also standard practice.
-
-    Limitations:
-    As with any simulation, some complexities of real data are simplified. If one were to compare these synthetic spectra to in vivo data, you might observe that real signals include additional baseline features, potential macromolecule signals, and artifacts not modeled here.
-
-In summary, these simulations are realistic enough for many research applications—especially for training deep learning models where the goal is to capture the major variability seen in real data. However, they remain an approximation. Refining them further (e.g., by including baseline distortions or more advanced modeling of J-coupling) might be required depending on how closely the training data needs to mimic every aspect of in vivo conditions.
-
-Let me know if you’d like to discuss any particular aspect further or need more detail on any modeling assumptions!
+        TimeSerieClean=0*TimeSerieClean
         for f, _ in enumerate(metabo_modes[0]):  # metabo_modes[int(BasisI[ex])]
             TimeSerieClean[:] += Amplitude[n, f] * TempMetabData[f, :]* np.exp(1j * PhShift[n])  
 
@@ -414,7 +404,6 @@ Let me know if you’d like to discuss any particular aspect further or need mor
         TimeSerie = TimeSerieClean + np.fft.ifft(SpectrumTemp.std()/0.65 / SNR[n] * NCRand,axis=0)
 
         MetabSpectrum[n] = np.fft.fftshift(np.fft.fft(TimeSerie))
-
 
     ############################
     ##### Lipid Simulation #####
