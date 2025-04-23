@@ -190,7 +190,7 @@ for sub in subjects:
     beta=1E-29 * 3 #beta=1E-24 * 3 #0.938
     multBeta = 1.5
     lipidFac = 0
-    LipidTarget = 0.995 # 0.938
+    LipidTarget = 0.938 # 0.938
     lower=None
 
     Data_rf = np.reshape(Data_rrrf, (s[0]*s[1]*s[2],s[3]))
