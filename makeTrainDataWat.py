@@ -40,7 +40,7 @@ bandwidth = 2778 # Vienna: 2778 Paul: 3000
 dwell_time = 1/bandwidth # Vienna 360000 nano seconds = 3.6*10⁻4 seconds
 
 # Simulation
-nSpectra=20
+nSpectra=100000 #this should be the same as in the paper
 nRandomLipid=10
 MaxLipidScaling=70
 
@@ -79,101 +79,9 @@ for sub in subjects:
     ##### Water Removal #####
     #########################
 
-    def HSVD(y, fs, k):
-        N = len(y)
-        L = int(np.floor(0.5*N))
-
-        # Hankel Matric and SVD
-        H = scipy.linalg.hankel(y[:L], y[L:N])
-        u, s, vh = np.linalg.svd(H)
-
-        # Compute Z prime
-        Uk = u[:,:k]
-        Ukt = Uk[1:,:]
-        Ukb = Uk[:-1,:]
-        Zp = np.matmul(np.linalg.pinv(Ukb),Ukt)
-
-        # Compute poles
-        w, v = np.linalg.eig(Zp)
-        Z = np.matmul(np.matmul(np.linalg.inv(v), Zp), v)
-        q = np.log(np.diag(Z))
-        dt = 1/fs
-        dampings = np.real(q)/dt
-        dampings[dampings>10] = 10
-        frequencies = np.imag(q)/(2*np.pi)/dt
-
-        # Construct Basis
-        t = np.arange(start=0,stop=len(y)*dt,step=dt)
-        basis = np.exp(np.matmul(t[:,None], (dampings+2*np.pi*1j*frequencies)[None,:]))
-
-        # Compute the amplitude estimates
-        amps = np.matmul(np.linalg.pinv(basis),y)
-        return frequencies, dampings, basis, amps
-
-    if b_RemWat:
-        print("####### Water Suppression #######")
-        sta_time = time.time()
-
-        image_grid = np.array(csi_rrrt)
-        s = image_grid.shape
-        image_rrrt = np.zeros(image_grid.shape, dtype=np.complex64)
-        water_rrrt = np.zeros(image_grid.shape, dtype=np.complex64)
-
-
-        def WaterSuppressionWrapper(image_rrrt, mask, fs, k, minFreq, maxFreq):
-            global WaterSuppression
-            def WaterSuppression(tup):
-                (x,y,z)=tup
-                fid = image_rrrt[x,y,z,:] 
-                if mask[x,y,z]:
-                    #sta_time = time.time()
-                    frequencies, dampings, basis, amps = HSVD(y = fid,
-                                                            fs = fs,
-                                                            k = k)
-                    indx = np.where(np.logical_and(frequencies >= minFreq, maxFreq >= frequencies))[0]
-                    filtFid = fid - np.sum(np.matmul(basis[:,indx], np.diag(amps[indx])), 1)
-
-                    return (filtFid, x,y,z, np.sum(np.matmul(basis[:,indx], np.diag(amps[indx])), 1))
-            return WaterSuppression
-
-        WaterSuppression = WaterSuppressionWrapper(image_rrrt = image_grid, 
-                                                    mask = headmask,
-                                                    fs = 1/dwell_time, 
-                                                    k = WatSuppComp, 
-                                                    minFreq = minFreq, 
-                                                    maxFreq = maxFreq)
-
-        all_sl = list(range(s[2]))
-        i=0
-        slices = []
-        cur_tup = []
-        while i < s[2]:
-            if len(cur_tup) < 3-1 and i<s[2]-1:
-                cur_tup.append(all_sl[i])
-            else:
-                cur_tup.append(all_sl[i])
-                slices.append(tuple(cur_tup))
-                cur_tup = []
-            i+=1
-
-        print("all slices: ", slices)
-        #slices=[(20,)]
-        for sl in slices:
-            print("Slice: ", sl)
-            res = Parallel(n_jobs=parallel_jobs)(delayed(WaterSuppression)(tup=tup)
-                                for tup in tqdm(product(range(s[0]), range(s[1]), sl), total=s[0]*s[1]*len(sl), position=0, leave=True))
-
-            for tup in res:
-                if tup is not None:
-                    filtFid, x, y, z, waterFid= tup
-                    image_rrrt[x,y,z] = filtFid
-                    water_rrrt[x,y,z] = waterFid
-
-        sto_time = time.time()
-        print('Water Removal: ', sto_time-sta_time)
-
-
-
+    water_rrrt=np.load(p_save + 'OriginalData/IsolatedWater.npy')
+    image_rrrt=np.load(p_save + 'OriginalData/SupressedWater.npy')
+    print('loaded water peaks')
 
     #####################################
     ##### Lipid Projection Operator #####
@@ -187,7 +95,7 @@ for sub in subjects:
     #Data_rrrf = np.fft.fftshift(np.fft.fft(imagesl_rrrt, axis=-1), axes=-1) # use water supressed data, just one slice for testing
 
     s = Data_rrrf.shape
-    beta=1E-29 * 3 #beta=1E-24 * 3 #0.938
+    beta=1E-5 * 3 #beta=1E-24 * 3 #0.938
     multBeta = 1.5
     lipidFac = 0
     LipidTarget = 0.938 # 0.938 Paul 0.995
@@ -288,8 +196,8 @@ for sub in subjects:
     #### Simulate metabolite ####
     #############################
     MetabSpectrum = np.zeros((nSpectra, N), dtype=np.complex128)
-    for n in tqdm(range(nSpectra)):
-
+    for n in tqdm(range(nSpectra), miniters=100):
+        
         TempMetabData =0*TempMetabData
         for f, mode in enumerate(metabo_modes[0]):   # metabo_modes[int(BasisI[n])]
                 Freq = ((4.7-mode[:, 0]) * 1e-6 * NMRFreq)[...,None]
