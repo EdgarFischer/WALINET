@@ -52,8 +52,8 @@ NMRFreq= 297222931.0 # (Lamor frequeny) Vienna : 297222931, Paul: 297189866
 sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
 
 MaxAcquDelay=0.002
-MaxFreq_Shift = 40
-MinPeak_Width=20#4
+MaxFreq_Shift = 40 #shifts peak
+MinPeak_Width=20#4 damping factor 
 MaxPeak_Width=100#20
 
 
@@ -182,15 +182,15 @@ for sub in subjects:
     #imagesl_rrrt = image_rrrt[:,:,20,None]
     #skmasksl = skmask[:,:,20,None]
 
-    #Data_rrrf = np.fft.fftshift(np.fft.fft(csi_rrrt, axis=-1), axes=-1) # use water unsupressed data
-    Data_rrrf = np.fft.fftshift(np.fft.fft(image_rrrt, axis=-1), axes=-1) # use water supressed data
+    Data_rrrf = np.fft.fftshift(np.fft.fft(csi_rrrt, axis=-1), axes=-1) # use water unsupressed data, for wallinet
+    #Data_rrrf = np.fft.fftshift(np.fft.fft(image_rrrt, axis=-1), axes=-1) # use water supressed data, for lipnet
     #Data_rrrf = np.fft.fftshift(np.fft.fft(imagesl_rrrt, axis=-1), axes=-1) # use water supressed data, just one slice for testing
 
     s = Data_rrrf.shape
     beta=1E-29 * 3 #beta=1E-24 * 3 #0.938
     multBeta = 1.5
     lipidFac = 0
-    LipidTarget = 0.938 # 0.938
+    LipidTarget = 0.938 # 0.938 Paul 0.995
     lower=None
 
     Data_rf = np.reshape(Data_rrrf, (s[0]*s[1]*s[2],s[3]))
