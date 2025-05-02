@@ -56,7 +56,6 @@ MaxFreq_Shift = 40 #shifts peak
 MinPeak_Width=20#4 damping factor 
 MaxPeak_Width=100#20
 
-
 for sub in subjects:
     p_mask= path + sub + '/masks/brain_mask.npy'
     p_cc = path + sub + '/OriginalData/data.npy' # coil combined reconstructed data
@@ -268,8 +267,8 @@ for sub in subjects:
         water_batch = water_rrrf[xx,yy,zz,:]
         
         WatAmp = np.random.rand(1)+.5
-        print(water_batch.shape)
-        print(WatAmp.shape)
+        #print(water_batch.shape)
+        #print(WatAmp.shape)
         water_rf[i] = np.sum(water_batch * WatAmp[:,None], axis=0)
     
     Wat_max = np.amax(np.abs(water_rf), axis=1)[:,None]
@@ -295,3 +294,5 @@ for sub in subjects:
     hf.create_dataset('lipid', data=lipid_rf)
     hf.create_dataset('lipid_projOP', data=LipidProj_Operator_ff)
     hf.close()
+
+    print('All done!')

@@ -1,6 +1,6 @@
 params ={}
 
-params["model_name"] =  "Vienna_1.1"#"EXP_1"# "test"# 
+params["model_name"] =  "Vienna_1.0"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
@@ -24,7 +24,7 @@ params["milestones"] = [400, 700, 1000, 1300, 1500]
 params["gamma"] = 0.25
 
 # Model Params
-params["nLayers"] = 3#5#4
+params["nLayers"] = 4#5#4
 params["nFilters"] = 8#12#8#8#4#8#16#8
 params["in_channels"] = 2 
 params["out_channels"] = 2
