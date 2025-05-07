@@ -23,3 +23,7 @@ For 5 and 8 I still process the data.
 
 
 Bernhard
+
+New data from zeinab:
+
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Bernhard_pipeline/Results/Vol9/Vol9_DICOM_NoL2/ CombinedCSI.mat
