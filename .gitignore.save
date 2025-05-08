@@ -1,0 +1,41 @@
+# Ignore dataset files and large files
+*.csv
+*.tsv
+*.json
+*.xml
+*.hdf5
+*.h5
+*.zip
+*.tar.gz
+*.npz
+*.pth
+*.pt
+*.onnx
+*.npy
+*.mat
+events.out.tfevents.*
+*.mnc
+*.nii
+*.raw
+*.gz
+*.pyc
+*.RAW
+*.control
+*.table
+*.ps
+*.fig
+*.eps
+*.mnc
+*.coord
+*.sample
+*.png
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore logs and temporary files
+logs/
+*.log
+*.tmp
+*.DS_Store
+
