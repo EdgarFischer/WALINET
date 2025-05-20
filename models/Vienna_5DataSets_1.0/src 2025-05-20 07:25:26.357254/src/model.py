@@ -10,19 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from torch.nn.parameter import Parameter
 
-# -----------------------------------------------------------
-# helper shared by both models
-# -----------------------------------------------------------
-def _pad_to_multiple(x, multiple):
-    """
-    Right-pad x with zeros so its last dim is a multiple of `multiple`.
-    Returns (padded_x, pad_len).
-    """
-    L = x.size(-1)
-    pad_len = (-L) % multiple          # 0 if already divisible
-    if pad_len:
-        x = F.pad(x, (0, pad_len))     # (left, right)
-    return x, pad_len
+
 
 class uModel(nn.Module):
     def __init__(self, nLayers, nFilters, dropout, in_channels, out_channels):
@@ -78,36 +66,33 @@ class uModel(nn.Module):
                                 activation=False)
         
         
-    def forward(self, x1, y1):
-        orig_len = x1.size(-1)                 # 840
-        mult     = 2 ** self.nLayers           # power-of-two stride
+    def forward(self,x1,y1):
 
-        # ❶ replicate pad (old behaviour)
-        x1 = F.pad(x1, (8, 8),  'replicate')
-        y1 = F.pad(y1, (8, 8),  'replicate')
+        #Initial Block
+        x1 = F.pad(x1, (8,8), 'replicate') 
+        y1 = F.pad(y1, (8,8), 'replicate') 
+        x=torch.cat((x1,y1), dim=1)
+        x = self.initconv(x)
 
-        # ❷ zero pad to multiple of 2^nLayers
-        x1, extra = _pad_to_multiple(x1, mult)
-        y1, _     = _pad_to_multiple(y1, mult)
-
-        # ---------- original network ----------
-        x  = torch.cat((x1, y1), dim=1)
-        x  = self.initconv(x)
+        # Encoder
         allx = [x]
         for i in range(self.nLayers):
             allx.append(self.encoder[i](allx[-1]))
-        out = self.bottleconv(allx[-1])
+        
+        # Bottleneck
+        out=allx[-1]
+        out=self.bottleconv(out)
+
+        # Decoder
         for i in range(self.nLayers):
             out = self.decoder[-i-1]((out, allx[-i-2]))
-        out = torch.cat((out, x1, y1, x), dim=1)
+        
+        # Final Block
+        out = torch.cat((out,x1,y1,x),dim=1)
         out = self.finconv1(out)
-        out = torch.cat((out, x1, y1, x), dim=1)
+        out = torch.cat((out,x1,y1,x),dim=1)
         out = self.finconv2(out)
-        # --------------------------------------
-
-        # ❸ crop: first 8 left, then keep exactly orig_len samples
-        out = out[:, :, 8 : 8 + orig_len]
-        return out
+        return out[:,:,8:-8]
 
 
 
@@ -181,40 +166,33 @@ class yModel(nn.Module):
                                 activation=False)
         
         
-    def forward(self, x1, y1):
-        orig_len = x1.size(-1)                 # 840
-        mult     = 2 ** self.nLayers
-        b        = self.b                      # 16
+    def forward(self,x1,y1):
+        #Initial Block
+        x1 = F.pad(x1, (self.b,self.b), 'replicate') 
+        y1 = F.pad(y1, (self.b,self.b), 'replicate') 
+        x2 = self.initconv1(x1)
+        y2 = self.initconv2(y1)
 
-        # ❶ replicate pad
-        x1 = F.pad(x1, (b, b), 'replicate')
-        y1 = F.pad(y1, (b, b), 'replicate')
-
-        # ❷ zero pad to multiple
-        x1, extra = _pad_to_multiple(x1, mult)
-        y1, _     = _pad_to_multiple(y1, mult)
-
-        # ---------- original network ----------
-        x2   = self.initconv1(x1)
-        y2   = self.initconv2(y1)
+        # Encoder
         allx = [x2]
         ally = [y2]
         for i in range(self.nLayers):
             allx.append(self.encoder1[i](allx[-1]))
             ally.append(self.encoder2[i](ally[-1]))
-        out  = torch.cat((allx[-1], ally[-1]), dim=1)
-        out  = self.bottleconv(out)
+        
+        # Bottleneck
+        out=torch.cat((allx[-1], ally[-1]), dim=1)
+        out=self.bottleconv(out)
+        # Decoder
         for i in range(self.nLayers):
             out = self.decoder[-i-1]((out, allx[-i-2], ally[-i-2]))
-        out = torch.cat((out, x1, y1, x2, y2), dim=1)
+        
+        # Final Block
+        out = torch.cat((out,x1,y1,x2,y2),dim=1)
         out = self.finconv1(out)
-        out = torch.cat((out, x1, y1, x2, y2), dim=1)
+        out = torch.cat((out,x1,y1,x2,y2),dim=1)
         out = self.finconv2(out)
-        # --------------------------------------
-
-        # ❸ crop off left replicate pad only, keep orig_len
-        out = out[:, :, b : b + orig_len]
-        return out
+        return out[:,:,self.b:-self.b]
 
 
 

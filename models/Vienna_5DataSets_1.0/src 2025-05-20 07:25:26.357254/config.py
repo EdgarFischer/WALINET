@@ -1,6 +1,6 @@
 params ={}
 
-params["model_name"] =  "Vienna_5DataSets_1.1"#"EXP_1"# "test"# 
+params["model_name"] =  "Vienna_5DataSets_1.0"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 

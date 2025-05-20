@@ -27,7 +27,7 @@ version='v_1.0'
 path = 'data/'
 
 #subjects = ['/3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005'] #'3DMRSIMAP_Vol_10_A_1_2024-09-04_L2_0p0005','3DMRSIMAP_Vol_16_A_1_2024-09-05_L2_0p0005'
-subjects = ['Vol5','Vol8','Vol9']
+subjects = ['Vol9']
 
 # Water Removal
 b_RemWat = True
@@ -94,7 +94,7 @@ for sub in subjects:
     #Data_rrrf = np.fft.fftshift(np.fft.fft(imagesl_rrrt, axis=-1), axes=-1) # use water supressed data, just one slice for testing
 
     s = Data_rrrf.shape
-    beta=1E-5 * 3 #beta=1E-24 * 3 #0.938
+    beta=1E-4 * 3 #beta=1E-24 * 3 #0.938
     multBeta = 1.5
     lipidFac = 0
     LipidTarget = 0.938 # 0.938 Paul 0.995
