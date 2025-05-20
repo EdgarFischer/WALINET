@@ -1,1 +1,0 @@
-Epoch; Epoch Loss; Validation Loss; Learning Rate; 

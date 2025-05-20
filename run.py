@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or whichever GPU you want
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # or whichever GPU you want
 import sys
 import numpy as np
 import matplotlib.pyplot as plt

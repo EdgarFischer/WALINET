@@ -31,7 +31,7 @@ class SpectrumDatasetLoad(Dataset):
             lipid = torch.tensor(np.array(fh['lipid'][:]), dtype=torch.cfloat)
             if 'water' in fh.keys():
                 water = torch.tensor(np.array(fh['water'][:]), dtype=torch.cfloat)
-                nuisance = lipid #+ water ACHTUNG HABE ICH HART GEÄNDERT HAUKE
+                nuisance = lipid + water#+ water ACHTUNG HABE ICH HART GEÄNDERT HAUKE
             else:
                 nuisance = lipid
             nuisance_proj = torch.tensor(np.array(fh['lipid_proj'][:]), dtype=torch.cfloat)

@@ -1,19 +1,19 @@
 params ={}
 
-params["model_name"] =  "Vienna_Lipnet"#"EXP_1"# "test"# 
+params["model_name"] =  "Vienna_5DataSets_1.0"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
-params["train_subjects"]=['Vol6'] #
+params["train_subjects"]=['Vol6','Vol7','Vol8','Vol9'] #
 
-params["val_subjects"]=['Vol7']
+params["val_subjects"]=['Vol5']
 
 # Train Params
 params["gpu"]=1
 params["batch_size"] = 1000#32
 params["num_worker"] = 15
 params["lr"] = 0.00025 # 0.0001#0.0001 
-params["epochs"]=10000
+params["epochs"]=2000
 params["verbose"] = False#params["model_name"] == "test" #True #True #False #True #False #TrueFalse#
 params["n_batches"] = -1
 params["n_val_batches"] = -1
