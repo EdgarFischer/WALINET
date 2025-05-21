@@ -1,5 +1,5 @@
-model_name: Vienna_5DataSets_1.1
-path_to_model: models/Vienna_5DataSets_1.1/
+model_name: Vienna_5DataSets_1.1_deep
+path_to_model: models/Vienna_5DataSets_1.1_deep/
 path_to_data: data/
 train_subjects: ['Vol6', 'Vol7', 'Vol8', 'Vol9']
 val_subjects: ['Vol5']
@@ -14,7 +14,7 @@ n_val_batches: -1
 data_version: v_1.0
 milestones: [400, 700, 1000, 1300, 1500]
 gamma: 0.25
-nLayers: 3
+nLayers: 5
 nFilters: 8
 in_channels: 2
 out_channels: 2
