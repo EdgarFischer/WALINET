@@ -1,0 +1,2 @@
+Epoch; Epoch Loss; Validation Loss; Learning Rate; 
+Epoch: 001, Loss: 0.0292905053, Val Loss: 0.0004592203, LR: 0.0002500000, best model
