@@ -1,0 +1,10 @@
+Epoch; Epoch Loss; Validation Loss; Learning Rate; 
+Epoch: 001, Loss: 0.0218153417, Val Loss: 0.0006174635, LR: 0.0002500000, best model
+Epoch: 002, Loss: 0.0005207025, Val Loss: 0.0004666530, LR: 0.0002500000, best model
+Epoch: 003, Loss: 0.0003952757, Val Loss: 0.0003763585, LR: 0.0002500000, best model
+Epoch: 004, Loss: 0.0003136257, Val Loss: 0.0002959547, LR: 0.0002500000, best model
+Epoch: 005, Loss: 0.0002594928, Val Loss: 0.0002493810, LR: 0.0002500000, best model
+Epoch: 006, Loss: 0.0002335936, Val Loss: 0.0002265206, LR: 0.0002500000, best model
+Epoch: 007, Loss: 0.0002183540, Val Loss: 0.0002051000, LR: 0.0002500000, best model
+Epoch: 008, Loss: 0.0002054481, Val Loss: 0.0001890114, LR: 0.0002500000, best model
+Epoch: 009, Loss: 0.0002066794, Val Loss: 0.0001801294, LR: 0.0002500000, best model

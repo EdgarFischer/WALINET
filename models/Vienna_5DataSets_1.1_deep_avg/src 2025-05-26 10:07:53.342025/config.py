@@ -1,6 +1,6 @@
 params ={}
 
-params["model_name"] =  "Vienna_5DataSets_1.2_deep_avg"#"EXP_1"# "test"# 
+params["model_name"] =  "Vienna_5DataSets_1.1_deep_avg"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
@@ -24,7 +24,7 @@ params["milestones"] = [400, 700, 1000]
 params["gamma"] = 0.25
 
 # Model Params
-params["nLayers"] = 7#5#4
+params["nLayers"] = 5#5#4
 params["nFilters"] = 8#12#8#8#4#8#16#8
 params["in_channels"] = 2 
 params["out_channels"] = 2
