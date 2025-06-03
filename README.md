@@ -197,11 +197,24 @@ After training completes, check /models/model_0/ for loss curves and the saved m
 - Proper scalp mask integration
 - Network Adaptation for increased depth
 - simulation parameter adapation
+- current data usage
 - Lipid Operator convergence fix
 - Training time reduction - Avoid worker stuff
 - docker installation
 
 ## 5. Results
+
+The figure below compares metabolic maps from LCModel fits for key metabolites under three conditions:
+
+- **Left column:** LCModel fit on raw data (with water and lipid signals intact).  
+- **Middle column:** LCModel fit after applying our adapted WALINET (this repository).  
+- **Right column:** LCModel fit after applying the Vienna-retrained WALINET (original authors).
+
+In the right column, the retrained model often removes too much signal, leading to a loss in the central brain region. In contrast, our updated model (middle) removes nuisance signals while preserving metabolite signal intensity throughout the brain.
+
+![Metabolite comparison](notebooks/metab_compare.png)
+
+
 
 ## 6. Data Used So Far
 
