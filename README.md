@@ -26,8 +26,6 @@ This repository provides a polished, more robust implementation of WALINET tailo
 
 For full details on WALINET, please refer to the original publication and the README of the original GitHub repository.
 
-The original authors retrained WALINET on Vienna 7 T data, but the resulting network removed excessive signal from several metabolites when evaluated on current test data from Vienna scanners.
-
 This repository makes the minimal adaptations needed to ensure WALINET is robust on the current 7 T setups in Vienna, Oxford, London, and Brisbane, so it can be safely deployed and used on those scanners.
 
 Changes relative to the original code are summarized in [Novelties](#Novelties). An example result demonstrating these improvements is shown in [Results](#results).
@@ -176,6 +174,21 @@ Save and rerun python3 run.py.
 After training completes, check /models/model_0/ for loss curves and the saved model checkpoints.
 
 ### 3.4 Inference on Unseen Data
+
+1. Open the notebook  
+   `Evaluate_Model/EvaluateModel_general.ipynb`.
+
+2. In the “Set Parameters” cell at the top:  
+   - Set `exp` to the name of your trained model’s folder inside `/models` (e.g., `model_0`).  
+   - Set `subject` to the subject folder name inside `/data` (e.g., `sub0`).  
+
+   > **Note:**  
+   > - The subject folder must follow the naming conventions from [3.1 Data Requirements](#31-data-requirements).  
+   > - Both a scalp mask (`lipid_mask.npy`) and a brain mask (`brain_mask.npy`) must be present for the selected subject.
+
+3. Run all cells in the notebook.  
+   - The notebook includes visualizations that compare the data before and after applying WALINET.  
+   - Once execution is complete, the denoised data (with water and lipid removed), in the same format as your input, is stored in the variable `Nuisance_Free_FID_Data`.
 
 
 
