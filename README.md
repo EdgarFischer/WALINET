@@ -28,7 +28,7 @@ For full details on WALINET, please refer to the original publication and the RE
 
 This repository makes the minimal adaptations needed to ensure WALINET is robust on the current 7 T setups in Vienna, Oxford, London, and Brisbane, so it can be safely deployed and used on those scanners.
 
-Changes relative to the original code are summarized in [Novelties](#Novelties). An example result demonstrating these improvements is shown in [Results](#results).
+Changes relative to the original code are summarized in [Novelties](#4-novelties). An example result demonstrating these improvements is shown in [Results](#5-results).
 
 
 
