@@ -28,7 +28,7 @@ events.out.tfevents.*
 *.mnc
 *.coord
 *.sample
-*.png
+#*.png
 
 # Ignore Jupyter notebook checkpoints
 .ipynb_checkpoints/
