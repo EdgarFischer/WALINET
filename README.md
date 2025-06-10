@@ -218,9 +218,9 @@ In the right column, the retrained model often removes too much signal, leading 
 
 ## 6. Data Used So Far
 
+# Data from Vienna (current data)
+
 The following datasets were provided by Bernhard Strasser, acquired on the 7 T scanner at the Medical University of Vienna:
-
-
 
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/bstrasser/Projects/Project9_ImplementRecoInICE/Step2_ISMRMAbstractOnPipeline/LargeData_d3hj/Results/Vol[VolNo]/Vol[VolNo]_64x64x35_DICOM_Ice73/CombinedCSI.mat
 
@@ -230,4 +230,15 @@ The following datasets were provided by Bernhard Strasser, acquired on the 7 T s
 In addition, Zeinab provided one more subject (measured under the same conditions), corresponding to:
 
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Bernhard_pipeline/Results/Vol9/Vol9_DICOM_NoL2/CombinedCSI.mat
+
+# Data from Vienna that Paul used (~2019)
+
+Paul Train data:
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/lab/Process_Results/3DMRSIMAP_Volunteers/PaulTrainData
+
+# Data from Brisbane
+
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-2/DICOM_NoL2/
+
+
 

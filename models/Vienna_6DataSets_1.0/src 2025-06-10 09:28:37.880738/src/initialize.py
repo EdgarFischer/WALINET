@@ -42,24 +42,47 @@ def read_args(params):
 
 
 def initialize_model_folder(params):
-    if params["clean_model"] == True:
-        if params["model_name"] != "test":
-            if os.path.isdir(params["path_to_model"]) == True:
-                print("Model already exists. Choose different model name.")
-                sys.exit()
+    base = params["path_to_model"]
+    preds = os.path.join(base, "predictions")
+
+    #––– ensure full perms on creation –––
+    old_umask = os.umask(0)
+    try:
+        if params.get("clean_model", False):
+            if params["model_name"] != "test":
+                if os.path.isdir(base):
+                    print("Model already exists. Choose different model name.")
+                    sys.exit(1)
+                # else fall through and mkdir
             else:
-                os.makedirs(params["path_to_model"] + "predictions/")
+                # test-mode: nuke any existing tree
+                if os.path.isdir(base):
+                    shutil.rmtree(base)
+            # (re)create folders with 0o777
+            os.makedirs(preds, mode=0o777, exist_ok=True)
         else:
-            if os.path.isdir(params["path_to_model"]) == True:
-                shutil.rmtree(params["path_to_model"])
-            os.makedirs(params["path_to_model"] + "predictions/")
-    my_copy(params["path_to_model"])
-    
-    file = open(params["path_to_model"] + "params.txt", "a")
-    for key in params.keys():
-        file.write(key + ': ' + str(params[key]))
-        file.write('\n')
-    file.close()
+            # just make sure it’s there
+            os.makedirs(preds, mode=0o777, exist_ok=True)
+    finally:
+        # restore user’s umask
+        os.umask(old_umask)
+
+    # copy code/config in
+    my_copy(base)
+
+    # write params.txt (overwrite, not append)
+    params_file = os.path.join(base, "params.txt")
+    with open(params_file, "w") as f:
+        for key, val in params.items():
+            f.write(f"{key}: {val}\n")
+
+    #––– force permissions on everything under base –––
+    for root, dirs, files in os.walk(base):
+        for d in dirs:
+            os.chmod(os.path.join(root, d), 0o777)
+        for fn in files:
+            # give full read/write perms on files
+            os.chmod(os.path.join(root, fn), 0o666)
 
 
 
