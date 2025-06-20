@@ -20,7 +20,7 @@ This repository provides a polished, more robust implementation of WALINET tailo
 
 - [4. Novelties](#4-novelties)
 - [5. Results](#5-results)
-- [6. Data used for training so far](#6-used-data-so-far)
+- [6. Data used for training so far](#6-data-used-so-far)
 
 ## 1. Overview
 
@@ -238,7 +238,19 @@ Paul Train data:
 
 # Data from Brisbane
 
+Vol1:
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-2/DICOM_NoL2/
+
+Vol2:
+questionable quality: # I double checked, this is good enough to use for WALINET training!
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST/DICOM_NoL2/
+
+usable:
+Vol3:
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-3/run-1-DICOM_NoL2/
+
+Vol4:
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-4/run-1-DICOM_NoL2/
 
 
 

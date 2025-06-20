@@ -1,10 +1,10 @@
 params ={}
 
-params["model_name"] =  "9DataSets_1.0"#"EXP_1"# "test"# 
+params["model_name"] =  "8DataSets_1.0"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
-params["train_subjects"]=['Vol6','Vol7','Vol8','Vol9','Vol2_Brisbane','Vol3_Brisbane','Vol4_Brisbane'] #
+params["train_subjects"]=['Vol6','Vol7','Vol8','Vol9','Vol3_Brisbane','Vol4_Brisbane'] #
 
 params["val_subjects"]=['Vol5','Vol1_Brisbane']
 
