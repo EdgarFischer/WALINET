@@ -1,6 +1,6 @@
 params ={}
 
-params["model_name"] =  "10DataSets_1.1"#"EXP_1"# "test"# 
+params["model_name"] =  "10DataSets_1.0"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
@@ -17,7 +17,7 @@ params["epochs"]=500
 params["verbose"] = False#params["model_name"] == "test" #True #True #False #True #False #TrueFalse#
 params["n_batches"] = -1
 params["n_val_batches"] = -1
-params["data_version"] = 'v_1.1'#'v3_2'
+params["data_version"] = 'v_1.0'#'v3_2'
 
 # LR Scheduler
 params["milestones"] = [150, 300, 500]

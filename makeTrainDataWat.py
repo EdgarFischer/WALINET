@@ -23,11 +23,11 @@ from itertools import product
 # v2 Test
 # v3 First Dataset
 
-version='v_1.0'
+version='v_1.1'
 path = 'data/'
 
 #subjects = ['/3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005'] #'3DMRSIMAP_Vol_10_A_1_2024-09-04_L2_0p0005','3DMRSIMAP_Vol_16_A_1_2024-09-05_L2_0p0005'
-subjects = ['Vol4_Brisbane']
+subjects = ['Vol1_Brisbane','Vol2_Brisbane','Vol3_Brisbane','Vol4_Brisbane', 'Vol5_Brisbane', 'Vol5', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
 
 # Water Removal
 b_RemWat = True
@@ -273,7 +273,7 @@ for sub in subjects:
     
     Wat_max = np.amax(np.abs(water_rf), axis=1)[:,None]
     Metab_max = np.amax(np.abs(MetabSpectrum), axis=1)[:,None]
-    WaterScaling = np.random.rand(nSpectra, 1) * 100 + 10 
+    WaterScaling = np.random.rand(nSpectra, 1) * 300 + 10 
     water_rf =  Metab_max/Wat_max*WaterScaling * water_rf
 
     ###################

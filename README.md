@@ -233,6 +233,8 @@ In addition, Zeinab provided one more subject (measured under the same condition
 
 # Data from Vienna that Paul used (~2019)
 
+This data was used by Paul and has different FID length (960 instead of 840) then the rest of the data, and the bandwidth was slightly higher. It should not be used for training anymore.
+
 Paul Train data:
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/lab/Process_Results/3DMRSIMAP_Volunteers/PaulTrainData
 
@@ -241,16 +243,21 @@ Paul Train data:
 Vol1:
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-2/DICOM_NoL2/
 
-Vol2:
-questionable quality: # I double checked, this is good enough to use for WALINET training!
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST/DICOM_NoL2/
+Vol2: # Zeinab said that the quality of this one i snot so high. I double checked, this is good enough to use for WALINET training!
+ /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-1/DICOM_NoL2/CombinedCSI.mat
 
-usable:
 Vol3:
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-3/run-1-DICOM_NoL2/
 
 Vol4:
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-4/run-1-DICOM_NoL2/
 
+Vol5:
+/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-5/DICOM_NoL2/
+
+# Date Versions:
+
+1.0 Water peaks up to 110 times higher than metabos
+1.1 Water peaks up to 300 times higher than metabos
 
 
