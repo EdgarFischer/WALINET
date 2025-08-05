@@ -28,6 +28,10 @@ events.out.tfevents.*
 *.mnc
 *.coord
 *.sample
+*.dat
+*.jl
+*.toml
+*.out
 #*.png
 
 # Ignore Jupyter notebook checkpoints

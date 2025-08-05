@@ -23,11 +23,12 @@ from itertools import product
 # v2 Test
 # v3 First Dataset
 
-version='v_1.1'
+version='v_1.0'
 path = 'data/'
+USE_B0_CORRECTED = False
 
 #subjects = ['/3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005'] #'3DMRSIMAP_Vol_10_A_1_2024-09-04_L2_0p0005','3DMRSIMAP_Vol_16_A_1_2024-09-05_L2_0p0005'
-subjects = ['Vol1_Brisbane','Vol2_Brisbane','Vol3_Brisbane','Vol4_Brisbane', 'Vol5_Brisbane', 'Vol5', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
+subjects = ['Vol1_London','Vol2_London','Vol3_London', 'Vol4_London', 'Vol5_London']
 
 # Water Removal
 b_RemWat = True
@@ -51,10 +52,21 @@ N= 840 # This is FID length. Vienna: 840, Paul: 960
 NMRFreq= 297222931.0 # (Lamor frequeny) Vienna : 297222931, Paul: 297189866
 sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
 
-MaxAcquDelay=0.002
-MaxFreq_Shift = 40 #shifts peak
-MinPeak_Width=20#4 damping factor 
-MaxPeak_Width=100#20
+# --------------------------------------------
+# Konfiguration für B0-korrigiertes Training
+# --------------------------------------------
+
+
+if USE_B0_CORRECTED:
+    MaxFreq_Shift   = 10        # Metabolite ±5 Hz
+    MinPeak_Width   = 10
+    MaxPeak_Width   = 60
+    MaxAcquDelay    = 0.001
+else:
+    MaxFreq_Shift   = 40
+    MinPeak_Width   = 20
+    MaxPeak_Width   = 100
+    MaxAcquDelay    = 0.002
 
 for sub in subjects:
     p_mask= path + sub + '/masks/brain_mask.npy'
@@ -273,7 +285,7 @@ for sub in subjects:
     
     Wat_max = np.amax(np.abs(water_rf), axis=1)[:,None]
     Metab_max = np.amax(np.abs(MetabSpectrum), axis=1)[:,None]
-    WaterScaling = np.random.rand(nSpectra, 1) * 300 + 10 
+    WaterScaling = np.random.rand(nSpectra, 1) * 150 + 10 
     water_rf =  Metab_max/Wat_max*WaterScaling * water_rf
 
     ###################

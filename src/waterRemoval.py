@@ -26,8 +26,7 @@ from itertools import product
 version='v_1.0'
 path = '../data/'
 
-#subjects = ['/3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005'] #'3DMRSIMAP_Vol_10_A_1_2024-09-04_L2_0p0005','3DMRSIMAP_Vol_16_A_1_2024-09-05_L2_0p0005'
-subjects = ['Vol2_Brisbane', 'Vol5_Brisbane']
+subjects = ['Vol1_London_B0_corrected','Vol2_London_B0_corrected','Vol3_London_B0_corrected','Vol4_London_B0_corrected','Vol5_London_B0_corrected']
 
 # Water Removal
 b_RemWat = True
@@ -157,6 +156,8 @@ for sub in subjects:
 
         np.save(p_save + 'IsolatedWater.npy', water_rrrt)
         np.save(p_save + 'SupressedWater.npy',  image_rrrt)
+
+print('ENDE!')
 
 
     
