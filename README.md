@@ -255,9 +255,13 @@ Vol4:
 Vol5:
 /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-5/DICOM_NoL2/
 
+Vol6:
+ /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/bstrasser/Projects/Project9_ImplementRecoInICE/Step5_MultiCenterStudy/LargeData_d3hj/Results/Brisbane/MRSI-TEST-7/DICOM_NoL2
+ 
 # Date Versions:
 
 1.0 Water peaks up to 110 times higher than metabos
 1.1 Water peaks up to 300 times higher than metabos
+2.0 is simulations for B0 corrected data with the same parameters as 1.0 for uncorrected data
 
 

@@ -23,12 +23,13 @@ from itertools import product
 # v2 Test
 # v3 First Dataset
 
-version='v_1.0'
+version='v_2.0'
 path = 'data/'
-USE_B0_CORRECTED = False
+#USE_B0_CORRECTED = True
 
-#subjects = ['/3DMRSIMAP_Vol_04_A_1_2024-09-06_L2_0p0005', '3DMRSIMAP_Vol_08_A_1_2024-09-07_L2_0p0005'] #'3DMRSIMAP_Vol_10_A_1_2024-09-04_L2_0p0005','3DMRSIMAP_Vol_16_A_1_2024-09-05_L2_0p0005'
-subjects = ['Vol1_London','Vol2_London','Vol3_London', 'Vol4_London', 'Vol5_London']
+subjects = ['Vol1_Brisbane_B0corrected_wo_LipidMask','Vol3_Brisbane_B0corrected_wo_LipidMask', 'Vol4_Brisbane_B0corrected_wo_LipidMask','Vol5_Brisbane_B0corrected_wo_LipidMask','Vol6_Brisbane_B0corrected_wo_LipidMask',
+            'Vol1_London_B0corrected_wo_LipidMask','Vol2_London_B0corrected_wo_LipidMask','Vol3_London_B0corrected_wo_LipidMask','Vol4_London_B0corrected_wo_LipidMask','Vol5_London_B0corrected_wo_LipidMask',
+            'Vol5_B0corrected_wo_LipidMask','Vol6_B0corrected_wo_LipidMask','Vol7_B0corrected_wo_LipidMask','Vol8_B0corrected_wo_LipidMask','Vol9_B0corrected_wo_LipidMask']
 
 # Water Removal
 b_RemWat = True
@@ -57,16 +58,21 @@ sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
 # --------------------------------------------
 
 
-if USE_B0_CORRECTED:
-    MaxFreq_Shift   = 10        # Metabolite ±5 Hz
-    MinPeak_Width   = 10
-    MaxPeak_Width   = 60
-    MaxAcquDelay    = 0.001
-else:
-    MaxFreq_Shift   = 40
-    MinPeak_Width   = 20
-    MaxPeak_Width   = 100
-    MaxAcquDelay    = 0.002
+# if USE_B0_CORRECTED:
+#     MaxFreq_Shift   = 10        # Metabolite ±5 Hz
+#     MinPeak_Width   = 10
+#     MaxPeak_Width   = 60
+#     MaxAcquDelay    = 0.001
+# else:
+#     MaxFreq_Shift   = 40
+#     MinPeak_Width   = 20
+#     MaxPeak_Width   = 100
+#     MaxAcquDelay    = 0.002
+
+MaxFreq_Shift = 40
+MinPeak_Width = 10 # ursprünglich 20
+MaxPeak_Width = 100
+MaxAcquDelay = 0.002
 
 for sub in subjects:
     p_mask= path + sub + '/masks/brain_mask.npy'
@@ -285,7 +291,7 @@ for sub in subjects:
     
     Wat_max = np.amax(np.abs(water_rf), axis=1)[:,None]
     Metab_max = np.amax(np.abs(MetabSpectrum), axis=1)[:,None]
-    WaterScaling = np.random.rand(nSpectra, 1) * 150 + 10 
+    WaterScaling = np.random.rand(nSpectra, 1) * 100 + 10 
     water_rf =  Metab_max/Wat_max*WaterScaling * water_rf
 
     ###################

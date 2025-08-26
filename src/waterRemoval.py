@@ -26,7 +26,9 @@ from itertools import product
 version='v_1.0'
 path = '../data/'
 
-subjects = ['Vol1_London_B0_corrected','Vol2_London_B0_corrected','Vol3_London_B0_corrected','Vol4_London_B0_corrected','Vol5_London_B0_corrected']
+subjects = ['Vol1_Brisbane_B0corrected_wo_LipidMask','Vol3_Brisbane_B0corrected_wo_LipidMask', 'Vol4_Brisbane_B0corrected_wo_LipidMask','Vol5_Brisbane_B0corrected_wo_LipidMask','Vol6_Brisbane_B0corrected_wo_LipidMask',
+            'Vol1_London_B0corrected_wo_LipidMask','Vol2_London_B0corrected_wo_LipidMask','Vol3_London_B0corrected_wo_LipidMask','Vol4_London_B0corrected_wo_LipidMask','Vol5_London_B0corrected_wo_LipidMask',
+            'Vol5_B0corrected_wo_LipidMask','Vol6_B0corrected_wo_LipidMask','Vol7_B0corrected_wo_LipidMask','Vol8_B0corrected_wo_LipidMask','Vol9_B0corrected_wo_LipidMask']
 
 # Water Removal
 b_RemWat = True
