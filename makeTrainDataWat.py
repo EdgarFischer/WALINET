@@ -23,7 +23,7 @@ from itertools import product
 # v2 Test
 # v3 First Dataset
 
-version='v_2.0'
+version='v_1.0_final'
 path = 'data/'
 #USE_B0_CORRECTED = True
 
@@ -57,7 +57,6 @@ sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
 # Konfiguration für B0-korrigiertes Training
 # --------------------------------------------
 
-
 # if USE_B0_CORRECTED:
 #     MaxFreq_Shift   = 10        # Metabolite ±5 Hz
 #     MinPeak_Width   = 10
@@ -69,10 +68,11 @@ sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
 #     MaxPeak_Width   = 100
 #     MaxAcquDelay    = 0.002
 
-MaxFreq_Shift = 40
+MaxFreq_Shift = 10
 MinPeak_Width = 10 # ursprünglich 20
 MaxPeak_Width = 100
 MaxAcquDelay = 0.002
+
 
 for sub in subjects:
     p_mask= path + sub + '/masks/brain_mask.npy'
@@ -301,15 +301,25 @@ for sub in subjects:
     spectra = water_rf+lipid_rf+MetabSpectrum
     lipid_proj = np.matmul(spectra, LipidProj_Operator_ff)
 
+    # -----------------------------------------------------------
+    # MINIMALE ERGÄNZUNG: NaN/Inf-Zeilen wie im 2. Skript filtern
+    # -----------------------------------------------------------
+    bad_rows = np.unique(np.argwhere(~np.isfinite(spectra))[:, 0])
+    keep_mask = ~np.isin(np.arange(spectra.shape[0]), bad_rows)
+    print(f"[Clean] Gefundene fehlerhafte Zeilen: {bad_rows.tolist()}")
+    print(f"[Clean] Behalte {keep_mask.sum()} von {spectra.shape[0]} Zeilen")
+
     if not os.path.isdir(p_save+'TrainData/'):
         os.mkdir(p_save+'TrainData/')
 
     hf = h5py.File(p_save+'TrainData/'+'TrainData_'+version+'.h5', 'w')
-    hf.create_dataset('metab', data=MetabSpectrum)
-    hf.create_dataset('water', data=water_rf)
-    hf.create_dataset('spectra', data=spectra)
-    hf.create_dataset('lipid_proj', data=lipid_proj)
-    hf.create_dataset('lipid', data=lipid_rf)
+    # dieselben Datasets wie zuvor, aber gefiltert
+    hf.create_dataset('metab', data=MetabSpectrum[keep_mask])
+    hf.create_dataset('water', data=water_rf[keep_mask])
+    hf.create_dataset('spectra', data=spectra[keep_mask])
+    hf.create_dataset('lipid_proj', data=lipid_proj[keep_mask])
+    hf.create_dataset('lipid', data=lipid_rf[keep_mask])
+    # Operator unverändert (global, nicht zeilenweise):
     hf.create_dataset('lipid_projOP', data=LipidProj_Operator_ff)
     hf.close()
 

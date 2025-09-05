@@ -1,17 +1,19 @@
 params ={}
 
-params["model_name"] =  "Final_No_B0_Correction"#"EXP_1"# "test"# 
+params["model_name"] =  "15Datasets_no_B0_correction"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
-params["train_subjects"]=['Vol3_Brisbane', 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
+params["train_subjects"]=['Vol3_Brisbane', 'Vol4_Brisbane','Vol5_Brisbane','Vol6_Brisbane',
+            'Vol2_London','Vol3_London','Vol4_London','Vol5_London',
+            'Vol6','Vol7','Vol8','Vol9'] #
 
-params["val_subjects"]=['Vol5', 'Vol1_Brisbane', 'Vol1_London']
+params["val_subjects"]=['Vol1_Brisbane','Vol1_London','Vol5']
 
 # Train Params
 params["gpu"]=1
 params["batch_size"] = 700#32
-params["num_worker"] = 0
+params["num_worker"] = 15
 params["lr"] = 0.00025 # 0.0001#0.0001 
 params["epochs"]=500
 params["verbose"] = False#params["model_name"] == "test" #True #True #False #True #False #TrueFalse#

@@ -1,5 +1,5 @@
-model_name: 14Datasets_noB0correction_continued
-path_to_model: models/14Datasets_noB0correction_continued/
+model_name: 15Datasets_B0correction
+path_to_model: models/15Datasets_B0correction/
 path_to_data: data/
 train_subjects: ['Vol3_Brisbane_B0corrected_wo_LipidMask', 'Vol4_Brisbane_B0corrected_wo_LipidMask', 'Vol5_Brisbane_B0corrected_wo_LipidMask', 'Vol6_Brisbane_B0corrected_wo_LipidMask', 'Vol2_London_B0corrected_wo_LipidMask', 'Vol3_London_B0corrected_wo_LipidMask', 'Vol4_London_B0corrected_wo_LipidMask', 'Vol5_London_B0corrected_wo_LipidMask', 'Vol6_B0corrected_wo_LipidMask', 'Vol7_B0corrected_wo_LipidMask', 'Vol8_B0corrected_wo_LipidMask', 'Vol9_B0corrected_wo_LipidMask']
 val_subjects: ['Vol5_B0corrected_wo_LipidMask', 'Vol1_Brisbane_B0corrected_wo_LipidMask', 'Vol1_London_B0corrected_wo_LipidMask']
@@ -23,4 +23,4 @@ clean_model: False
 train: True
 predict: False
 preload: False
-preload_model: 15Datasets_B0correction
+preload_model: 
