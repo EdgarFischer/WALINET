@@ -1,12 +1,12 @@
 params ={}
 
-params["model_name"] =  "Final_B0correction_In_Brain_5"#"EXP_1"# "test"# 
+params["model_name"] =  "Final_B0correction_In_Brain_4"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
-params["train_subjects"]=['Vol1_Brisbane_B0corrected_wo_LipidMask', 'Vol3_Brisbane_B0corrected_wo_LipidMask', 'Vol4_Brisbane_B0corrected_wo_LipidMask', 'Vol5_Brisbane_B0corrected_wo_LipidMask', 'Vol1_London_B0corrected_wo_LipidMask', 'Vol2_London_B0corrected_wo_LipidMask', 'Vol3_London_B0corrected_wo_LipidMask', 'Vol4_London_B0corrected_wo_LipidMask', 'Vol5_B0corrected_wo_LipidMask', 'Vol6_B0corrected_wo_LipidMask', 'Vol7_B0corrected_wo_LipidMask', 'Vol8_B0corrected_wo_LipidMask']
+params["train_subjects"]=['Vol1_Brisbane_B0corrected_wo_LipidMask', 'Vol3_Brisbane_B0corrected_wo_LipidMask', 'Vol4_Brisbane_B0corrected_wo_LipidMask', 'Vol6_Brisbane_B0corrected_wo_LipidMask', 'Vol1_London_B0corrected_wo_LipidMask', 'Vol2_London_B0corrected_wo_LipidMask', 'Vol3_London_B0corrected_wo_LipidMask', 'Vol5_London_B0corrected_wo_LipidMask', 'Vol5_B0corrected_wo_LipidMask', 'Vol6_B0corrected_wo_LipidMask', 'Vol7_B0corrected_wo_LipidMask', 'Vol9_B0corrected_wo_LipidMask']
 
-params["val_subjects"]=['Vol9_B0corrected_wo_LipidMask', 'Vol6_Brisbane_B0corrected_wo_LipidMask', 'Vol5_London_B0corrected_wo_LipidMask']
+params["val_subjects"]=['Vol8_B0corrected_wo_LipidMask', 'Vol5_Brisbane_B0corrected_wo_LipidMask', 'Vol4_London_B0corrected_wo_LipidMask']
 
 # Train Params
 params["gpu"]=1
