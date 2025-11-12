@@ -11,7 +11,7 @@ params["val_subjects"]=['Vol8_B0corrected_wo_LipidMask', 'Vol5_Brisbane_B0correc
 # Train Params
 params["gpu"]=1
 params["batch_size"] = 700#32
-params["num_worker"] = 0
+params["num_worker"] = 15
 params["lr"] = 0.00025 # 0.0001#0.0001 
 params["epochs"]=500
 params["verbose"] = False#params["model_name"] == "test" #True #True #False #True #False #TrueFalse#

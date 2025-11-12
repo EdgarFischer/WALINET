@@ -1,18 +1,18 @@
-model_name: Final_B0correction_In_Brain_4
-path_to_model: models/Final_B0correction_In_Brain_4/
+model_name: Final_B0correction_In_Brain_4_continued
+path_to_model: models/Final_B0correction_In_Brain_4_continued/
 path_to_data: data/
 train_subjects: ['Vol1_Brisbane_B0corrected_wo_LipidMask', 'Vol3_Brisbane_B0corrected_wo_LipidMask', 'Vol4_Brisbane_B0corrected_wo_LipidMask', 'Vol6_Brisbane_B0corrected_wo_LipidMask', 'Vol1_London_B0corrected_wo_LipidMask', 'Vol2_London_B0corrected_wo_LipidMask', 'Vol3_London_B0corrected_wo_LipidMask', 'Vol5_London_B0corrected_wo_LipidMask', 'Vol5_B0corrected_wo_LipidMask', 'Vol6_B0corrected_wo_LipidMask', 'Vol7_B0corrected_wo_LipidMask', 'Vol9_B0corrected_wo_LipidMask']
 val_subjects: ['Vol8_B0corrected_wo_LipidMask', 'Vol5_Brisbane_B0corrected_wo_LipidMask', 'Vol4_London_B0corrected_wo_LipidMask']
 gpu: 1
 batch_size: 700
 num_worker: 15
-lr: 0.00025
-epochs: 500
+lr: 0.000625
+epochs: 250
 verbose: False
 n_batches: -1
 n_val_batches: -1
 data_version: v_1.0
-milestones: [150, 300, 500]
+milestones: [50, 200]
 gamma: 0.25
 nLayers: 3
 nFilters: 8
@@ -22,5 +22,5 @@ dropout: 0.0
 clean_model: False
 train: True
 predict: False
-preload: False
-preload_model: 
+preload: True
+preload_model: Final_B0correction_In_Brain_4

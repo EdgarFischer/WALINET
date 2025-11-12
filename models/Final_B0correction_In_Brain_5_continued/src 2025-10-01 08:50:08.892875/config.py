@@ -1,6 +1,6 @@
 params ={}
 
-params["model_name"] =  "Final_B0correction_In_Brain_5"#"EXP_1"# "test"# 
+params["model_name"] =  "Final_B0correction_In_Brain_5_continued"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = "data/"
 
@@ -11,16 +11,16 @@ params["val_subjects"]=['Vol9_B0corrected_wo_LipidMask', 'Vol6_Brisbane_B0correc
 # Train Params
 params["gpu"]=1
 params["batch_size"] = 700#32
-params["num_worker"] = 0
-params["lr"] = 0.00025 # 0.0001#0.0001 
-params["epochs"]=500
+params["num_worker"] = 15
+params["lr"] = 0.000625 # 0.0001#0.0001 
+params["epochs"]=250
 params["verbose"] = False#params["model_name"] == "test" #True #True #False #True #False #TrueFalse#
 params["n_batches"] = -1
 params["n_val_batches"] = -1
 params["data_version"] = 'v_1.0'#'v3_2'
 
 # LR Scheduler
-params["milestones"] = [150, 300, 500]
+params["milestones"] = [50, 200]
 params["gamma"] = 0.25
 
 # Model Params
@@ -34,5 +34,5 @@ params["clean_model"] = False # Only removes models called "test"
 params["train"] = True
 params["predict"] = False
 
-params['preload'] = False
-params['preload_model'] = ''
+params['preload'] = True
+params['preload_model'] = 'Final_B0correction_In_Brain_5'

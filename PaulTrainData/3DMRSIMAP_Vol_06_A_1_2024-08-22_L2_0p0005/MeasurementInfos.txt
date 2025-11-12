@@ -1,2 +1,0 @@
-Name DoB Age Sex Weight w_0 B_0 U_transmit alpha_E
-3DMRSIMAP_Vol6 19960622 23.0828 2 90 297223204 6.98 250 39
