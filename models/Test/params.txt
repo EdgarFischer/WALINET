@@ -1,0 +1,26 @@
+model_name: Test
+path_to_model: models/Test/
+path_to_data: data/3T/
+train_subjects: ['Vol01_WB/Res64x64_Thick']
+val_subjects: ['Vol05_LH/Res64x64_Thick']
+gpu: 3
+batch_size: 700
+num_worker: 0
+lr: 0.00025
+epochs: 500
+verbose: False
+n_batches: -1
+n_val_batches: -1
+data_version: v_1.0
+milestones: [150, 300, 500]
+gamma: 0.25
+nLayers: 3
+nFilters: 8
+in_channels: 2
+out_channels: 2
+dropout: 0.0
+clean_model: False
+train: True
+predict: False
+preload: False
+preload_model: 

@@ -1,6 +1,6 @@
 params ={}
 
-params["model_name"] =  "3T_2.0"#"3T_1.0"#"EXP_1"# "test"# 
+params["model_name"] =  "3T_1.0"#"3T_1.0"#"EXP_1"# "test"# 
 params["path_to_model"] = "models/" + params["model_name"] + "/"
 params["path_to_data"] = 'data/3T/'
 
@@ -13,7 +13,7 @@ params["train_subjects"]=['Vol01_WB/Res64x64_Thick', 'Vol01_WB/Res64x64_Thin',
 params["val_subjects"]=['Vol05_LH/Res64x64_Thick']
 
 # Train Params
-params["gpu"]=2
+params["gpu"]=3
 params["batch_size"] = 5600#32
 params["num_worker"] = 0
 params["lr"] = 0.00025 # 0.0001#0.0001 
@@ -21,7 +21,7 @@ params["epochs"]=500
 params["verbose"] = False#params["model_name"] == "test" #True #True #False #True #False #TrueFalse#
 params["n_batches"] = -1
 params["n_val_batches"] = -1
-params["data_version"] = 'v_2.0'#'v3_2'
+params["data_version"] = 'v_1.0'#'v3_2'
 
 # LR Scheduler
 params["milestones"] = [150, 300, 500]
