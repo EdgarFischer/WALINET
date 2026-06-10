@@ -1,7 +1,7 @@
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
-import math
 
 
 def interactive_spectra_viewer_multi(
@@ -9,8 +9,12 @@ def interactive_spectra_viewer_multi(
     spectrum_funcs,
     labels=None,
     overlay_labels=None,
+    x_axis=None,
+    x_label="f",
     f_min=None,
     f_max=None,
+    ppm_min=None,
+    ppm_max=None,
     z_init=0,
     x_init=0,
     y_init=0,
@@ -21,6 +25,7 @@ def interactive_spectra_viewer_multi(
     sharey=False,
     same_ylim=False,
     overlay_first_two=True,
+    metabolite_lines=None,
 ):
     """
     Interaktiver Viewer:
@@ -33,51 +38,17 @@ def interactive_spectra_viewer_multi(
         * sonst:
             alle Spektren separat
 
-    Parameter
-    ----------
-    image_volume : np.ndarray
-        Array mit shape (X, Y, Z), das links angezeigt wird.
-
-    spectrum_funcs : list of callables
-        Liste von Funktionen f(x, y, z) -> 1D array der Länge F
-
-    labels : list of str oder None
-        Titel der Einzelplots.
-        Bei overlay_first_two=True:
-            labels[0] = Titel des Overlay-Plots
-            labels[1] = Titel des 3. Spektrums (separat)
-            labels[2:] = Titel weiterer Einzelplots
-
-    overlay_labels : list/tuple mit 2 strings oder None
-        Legendenlabels für die beiden Kurven im Overlay-Plot.
-
-    f_min, f_max : int oder None
-        Frequenzindexbereich für die Anzeige.
-
-    z_init, x_init, y_init : int
-        Startposition.
-
-    cmap : str
-        Colormap für linkes Bild.
-
-    figsize : tuple oder None
-        Figuregröße. Falls None, automatisch gewählt.
-
-    legend : bool
-        Ob Legenden angezeigt werden sollen.
-
-    ncols_spec : int
-        Anzahl Spalten für die Spektren-Subplots.
-
-    sharey : bool
-        Ob alle Spektrenplots die gleiche y-Achse teilen sollen.
-
-    same_ylim : bool
-        Falls True, bekommen alle 1D-Plots dieselben y-Limits.
-
-    overlay_first_two : bool
-        Falls True und mindestens 3 Spektren vorhanden:
-        erste zwei Spektren in einem Overlay-Plot.
+    Erweiterungen:
+    - x_axis kann z.B. eine ppm-Achse sein.
+    - x_label setzt das Label der x-Achse.
+    - falls x_label == "ppm", wird die x-Achse invertiert.
+    - ppm_min / ppm_max erlauben Bereichsauswahl direkt in ppm.
+      Beispiel: ppm_min=2.0, ppm_max=4.7.
+      Wenn ppm_min/ppm_max gesetzt sind, überschreiben sie f_min/f_max.
+    - metabolite_lines kann ein Dictionary sein:
+        {"NAA": 2.01, "Cr": 3.03, ...}
+      Dann werden farbige vertikale Linien in allen Spektrenplots gezeichnet.
+      Die Beschriftung erscheint nur einmal rechts neben dem letzten Plot.
     """
 
     image_volume = np.asarray(image_volume)
@@ -107,12 +78,50 @@ def interactive_spectra_viewer_multi(
         spec_init_list.append(spec)
 
     F = len(spec_init_list[0])
+
     for i, spec in enumerate(spec_init_list):
         if len(spec) != F:
             raise ValueError(
                 f"Alle Spektren müssen die gleiche Länge haben. "
                 f"Spektrum 0 hat Länge {F}, Spektrum {i} hat Länge {len(spec)}."
             )
+
+    # x-Achse vorbereiten: Index oder z.B. ppm
+    if x_axis is None:
+        x_axis = np.arange(F)
+    else:
+        x_axis = np.asarray(x_axis).squeeze()
+        if x_axis.ndim != 1:
+            raise ValueError("x_axis muss ein 1D-Array sein.")
+        if len(x_axis) != F:
+            raise ValueError(
+                f"x_axis muss die gleiche Länge wie das Spektrum haben. "
+                f"Erwartet: {F}, bekommen: {len(x_axis)}."
+            )
+
+    # ppm-Bereich in Indexbereich umrechnen
+    if ppm_min is not None or ppm_max is not None:
+        if x_axis is None:
+            raise ValueError("ppm_min/ppm_max benötigen eine x_axis, z.B. ppm.")
+
+        if ppm_min is None:
+            ppm_min = np.min(x_axis)
+        if ppm_max is None:
+            ppm_max = np.max(x_axis)
+
+        ppm_low = min(ppm_min, ppm_max)
+        ppm_high = max(ppm_min, ppm_max)
+
+        valid_idx = np.where((x_axis >= ppm_low) & (x_axis <= ppm_high))[0]
+
+        if len(valid_idx) == 0:
+            raise ValueError(
+                f"Kein Punkt der x_axis liegt im Bereich "
+                f"{ppm_low} bis {ppm_high} ppm."
+            )
+
+        f_min = int(valid_idx.min())
+        f_max = int(valid_idx.max())
 
     if f_min is None:
         f_min = 0
@@ -122,12 +131,13 @@ def interactive_spectra_viewer_multi(
     if not (0 <= f_min <= f_max < F):
         raise ValueError(f"f_min/f_max müssen im Bereich 0 bis {F-1} liegen.")
 
-    f_axis = np.arange(f_min, f_max + 1)
+    x_plot = x_axis[f_min:f_max + 1]
 
     use_overlay = overlay_first_two and (n_specs >= 3)
 
     # Definition der Plot-Struktur rechts
     plot_defs = []
+
     if use_overlay:
         plot_defs.append({
             "type": "overlay",
@@ -174,26 +184,36 @@ def interactive_spectra_viewer_multi(
     nrows_spec = math.ceil(n_plots / ncols_spec)
 
     if figsize is None:
-        figsize = (5 + 4 * ncols_spec, max(4, 2.8 * nrows_spec + 1.5))
+        figsize = (6 + 5.2 * ncols_spec, max(4.5, 3.2 * nrows_spec + 1.5))
 
     fig = plt.figure(figsize=figsize)
+
     outer = fig.add_gridspec(
-        1, 2,
-        width_ratios=[1.0, 4],
-        wspace=0.3
+        1,
+        2,
+        width_ratios=[1.0, 4.8],
+        wspace=0.28,
     )
 
     # Linkes Bild
     ax_img = fig.add_subplot(outer[0, 0])
+
     img0 = image_volume[:, :, z_init]
     im = ax_img.imshow(img0.T, origin="lower", cmap=cmap)
+
     ax_img.set_title(f"Slice z={z_init}")
     ax_img.set_xlabel("x")
     ax_img.set_ylabel("y")
+
     marker, = ax_img.plot(x_init, y_init, "ro")
 
     # Rechte Spektren
-    spec_grid = outer[0, 1].subgridspec(nrows_spec, ncols_spec, wspace=0.3, hspace=0.4)
+    spec_grid = outer[0, 1].subgridspec(
+        nrows_spec,
+        ncols_spec,
+        wspace=0.32,
+        hspace=0.45,
+    )
 
     axes_spec = []
     plot_line_groups = []
@@ -219,22 +239,25 @@ def interactive_spectra_viewer_multi(
             spec1 = spec_init_list[idx1][f_min:f_max + 1]
 
             line0, = ax.plot(
-                f_axis,
+                x_plot,
                 spec0,
                 color="black",
                 linewidth=1.5,
                 alpha=0.9,
                 linestyle="-",
                 label=overlay_labels[0],
+                zorder=3,
             )
+
             line1, = ax.plot(
-                f_axis,
+                x_plot,
                 spec1,
                 color="C3",
                 linewidth=1.5,
                 alpha=0.9,
                 linestyle="--",
                 label=overlay_labels[1],
+                zorder=3,
             )
 
             current_lines.extend([line0, line1])
@@ -244,26 +267,32 @@ def interactive_spectra_viewer_multi(
             spec = spec_init_list[idx][f_min:f_max + 1]
 
             line, = ax.plot(
-                f_axis,
+                x_plot,
                 spec,
                 linewidth=1.5,
                 alpha=0.9,
                 label=labels[plot_idx],
+                zorder=3,
             )
+
             current_lines.append(line)
 
         ax.set_title(labels[plot_idx])
-        ax.set_xlabel("f")
+        ax.set_xlabel(x_label)
         ax.set_ylabel("signal")
 
+        if x_label == "ppm":
+            ax.invert_xaxis()
+
         if legend:
-            ax.legend()
+            ax.legend(loc="best")
 
         axes_spec.append(ax)
         plot_line_groups.append(current_lines)
 
     # Leere Achsen ausblenden
     total_slots = nrows_spec * ncols_spec
+
     for i in range(n_plots, total_slots):
         row = i // ncols_spec
         col = i % ncols_spec
@@ -272,18 +301,79 @@ def interactive_spectra_viewer_multi(
 
     current = {"x": x_init, "y": y_init, "z": z_init}
 
-    plt.subplots_adjust(bottom=0.18)
+    # Platz rechts für Metabolitenliste
+    plt.subplots_adjust(bottom=0.18, right=0.84)
 
-    # Slider
-    ax_slider = plt.axes([0.2, 0.08, 0.6, 0.03])
-    z_slider = Slider(
-        ax=ax_slider,
-        label="z",
-        valmin=0,
-        valmax=Z - 1,
-        valinit=z_init,
-        valstep=1
-    )
+    metabolite_artists = []
+
+    def draw_metabolite_lines():
+        """
+        Zeichnet Metabolitenlinien in alle Spektrenplots.
+        Die Textliste wird nur einmal rechts neben dem letzten Spektrenplot gezeichnet.
+        Es werden nur Metaboliten angezeigt, die im aktuellen x_plot-Bereich liegen.
+        """
+        for artist in metabolite_artists:
+            artist.remove()
+        metabolite_artists.clear()
+
+        if metabolite_lines is None or len(metabolite_lines) == 0:
+            return
+
+        color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+        x_low = np.min(x_plot)
+        x_high = np.max(x_plot)
+
+        visible_items = [
+            (name, xpos)
+            for name, xpos in metabolite_lines.items()
+            if x_low <= xpos <= x_high
+        ]
+
+        if len(visible_items) == 0:
+            return
+
+        visible_items = sorted(
+            visible_items,
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+
+        # Linien in allen Spektrenplots
+        for i, (name, xpos) in enumerate(visible_items):
+            color = color_cycle[i % len(color_cycle)]
+
+            for ax in axes_spec:
+                line = ax.axvline(
+                    xpos,
+                    linestyle="--",
+                    linewidth=1.2,
+                    alpha=0.75,
+                    color=color,
+                    zorder=1,
+                )
+                metabolite_artists.append(line)
+
+        # Beschriftung nur einmal beim letzten/rechten Plot
+        label_ax = axes_spec[-1]
+
+        for i, (name, xpos) in enumerate(visible_items):
+            color = color_cycle[i % len(color_cycle)]
+
+            text = label_ax.text(
+                1.04,
+                0.98 - i * 0.075,
+                f"{xpos:4.2f}  {name}",
+                transform=label_ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=8,
+                color=color,
+                family="monospace",
+                clip_on=False,
+                zorder=5,
+            )
+            metabolite_artists.append(text)
 
     def get_current_plot_data(x, y, z):
         """
@@ -294,6 +384,7 @@ def interactive_spectra_viewer_multi(
             - bei Single:  [spec_crop]
         """
         full_specs = []
+
         for func in spectrum_funcs:
             spec = np.asarray(func(x, y, z)).squeeze()
 
@@ -305,6 +396,7 @@ def interactive_spectra_viewer_multi(
             full_specs.append(spec[f_min:f_max + 1])
 
         plot_data = []
+
         for plot_def in plot_defs:
             curves = [full_specs[idx] for idx in plot_def["spec_indices"]]
             plot_data.append(curves)
@@ -314,6 +406,7 @@ def interactive_spectra_viewer_multi(
     def apply_y_limits(plot_data):
         if same_ylim:
             all_curves = [curve for curves in plot_data for curve in curves]
+
             y_min = min(np.min(curve) for curve in all_curves)
             y_max = max(np.max(curve) for curve in all_curves)
 
@@ -328,6 +421,7 @@ def interactive_spectra_viewer_multi(
 
             for ax in axes_spec:
                 ax.set_ylim(y_min, y_max)
+
         else:
             for ax in axes_spec:
                 ax.relim()
@@ -335,6 +429,7 @@ def interactive_spectra_viewer_multi(
 
     # Initiale Skalierung
     init_plot_data = []
+
     for plot_def in plot_defs:
         curves = []
         for idx in plot_def["spec_indices"]:
@@ -342,6 +437,19 @@ def interactive_spectra_viewer_multi(
         init_plot_data.append(curves)
 
     apply_y_limits(init_plot_data)
+    draw_metabolite_lines()
+
+    # Slider
+    ax_slider = plt.axes([0.20, 0.08, 0.55, 0.03])
+
+    z_slider = Slider(
+        ax=ax_slider,
+        label="z",
+        valmin=0,
+        valmax=Z - 1,
+        valinit=z_init,
+        valstep=1,
+    )
 
     def redraw_spectra():
         x = current["x"]
@@ -352,14 +460,10 @@ def interactive_spectra_viewer_multi(
 
         for plot_idx, curves in enumerate(plot_data):
             for line, curve in zip(plot_line_groups[plot_idx], curves):
-                line.set_data(f_axis, curve)
+                line.set_data(x_plot, curve)
 
-        if same_ylim:
-            apply_y_limits(plot_data)
-        else:
-            for ax in axes_spec:
-                ax.relim()
-                ax.autoscale_view()
+        apply_y_limits(plot_data)
+        draw_metabolite_lines()
 
     def onclick(event):
         if event.inaxes != ax_img:
@@ -377,6 +481,7 @@ def interactive_spectra_viewer_multi(
         current["y"] = y
 
         marker.set_data([x], [y])
+
         redraw_spectra()
         fig.canvas.draw_idle()
 
@@ -397,6 +502,74 @@ def interactive_spectra_viewer_multi(
     plt.show()
 
     return fig, ax_img, axes_spec, z_slider
+
+def make_ppm_axis(
+    vec_size,
+    dwelltime,
+    larmor_freq,
+    ppm_ref=4.7,
+    ref_freq_hz=0.0,
+    dwelltime_unit="ns",
+):
+    """
+    Erzeugt eine ppm-Achse für ein MRS-Spektrum.
+
+    Parameters
+    ----------
+    vec_size : int
+        Anzahl Spektralpunkte, z.B. 288.
+
+    dwelltime : float
+        Dwelltime aus den Metadaten.
+
+    larmor_freq : float
+        Larmorfrequenz in Hz, z.B. 123231706.
+
+    ppm_ref : float
+        ppm-Wert der Referenz. Für 1H-Wasser meistens 4.7 ppm.
+
+    ref_freq_hz : float
+        Position der Referenz auf der FFT-Frequenzachse in Hz.
+        Wenn unbekannt: 0.0.
+
+    dwelltime_unit : str
+        "s", "ms", "us" oder "ns".
+
+    invert : bool
+        Wenn True, wird die Achse so ausgegeben, dass hohe ppm links
+        und niedrige ppm rechts stehen.
+
+    Returns
+    -------
+    ppm : np.ndarray
+        ppm-Achse mit Länge vec_size.
+    """
+
+    unit_scale = {
+        "s": 1.0,
+        "ms": 1e-3,
+        "us": 1e-6,
+        "ns": 1e-9,
+    }
+
+    if dwelltime_unit not in unit_scale:
+        raise ValueError("dwelltime_unit muss 's', 'ms', 'us' oder 'ns' sein.")
+
+    dt_s = dwelltime * unit_scale[dwelltime_unit]
+    bandwidth_hz = 1.0 / dt_s
+    larmor_mhz = larmor_freq / 1e6
+
+    freq_hz = np.linspace(
+        -bandwidth_hz / 2,
+        bandwidth_hz / 2,
+        vec_size,
+        endpoint=False,
+    )
+
+    ppm = ppm_ref - (freq_hz - ref_freq_hz) / larmor_mhz
+
+
+    return ppm
 
 
 def make_spec_func(arr4d):
