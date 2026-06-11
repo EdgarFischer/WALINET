@@ -440,7 +440,7 @@ def interactive_spectra_viewer_multi(
     draw_metabolite_lines()
 
     # Slider
-    ax_slider = plt.axes([0.20, 0.08, 0.55, 0.03])
+    ax_slider = plt.axes([0.20, 0.04, 0.55, 0.03])
 
     z_slider = Slider(
         ax=ax_slider,
