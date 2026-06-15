@@ -1,0 +1,27 @@
+run:
+  seed: 42
+
+data:
+  base_dir: "../data/3T"
+  subjects: ['Vol01_WB/Res64x64_Thick',]
+
+  paths:
+    brain_mask: "masks/brain_mask.npy"
+    lipid_mask: "masks/lipid_mask.npy"
+    input_data: "OriginalData/data.npy"
+    output_dir: "TrainData"
+
+water_removal:
+  enabled: true
+  hsvd_components: 16
+  min_freq: -74
+  max_freq: 74
+  bandwidth: 939.85
+  dwell_time: null
+  parallel_jobs: 20
+  slice_batch_size: 3
+
+output:
+  version: "v_1.0"
+  isolated_water_filename: "IsolatedWater_{version}.npy"
+  overwrite: false
