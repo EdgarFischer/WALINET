@@ -44,6 +44,7 @@ if __name__ == "__main__":
     from walinet.config.load import load_yaml
     from walinet.config.build_training_data import build_training_data_config
     from walinet.training_data.water_removal import get_or_create_isolated_water
+    from walinet.training_data.simulation import process_subject
 
     config_path = Path(args.config).resolve()
     config_dir = config_path.parent
@@ -52,14 +53,43 @@ if __name__ == "__main__":
     cfg = build_training_data_config(raw, config_dir=config_dir)
 
     np.random.seed(cfg.run.seed)
+    rng = np.random
+
+    sampling_rate = cfg.acquisition.bandwidth
 
     for subject in cfg.data.subjects:
+        print(f"\n=== Subject: {subject} ===")
+
         copy_config_to_subject_train_data(config_path, cfg, subject)
 
-        water_rrrt = get_or_create_isolated_water(subject, cfg)
+        # Loads existing isolated water or computes it if missing.
+        get_or_create_isolated_water(subject, cfg)
 
-        # Later:
-        # lipid_result = get_or_create_lipid_result(subject, cfg, water_rrrt)
-        # training_data = generate_training_samples(subject, cfg, water_rrrt, lipid_result)
+        # Aborts internally if TrainData_{version}.h5 already exists.
+        process_subject(
+            sub=subject,
+            path=cfg.data.base_dir,
+            version=cfg.output.version,
+            rng=rng,
+            n_spectra=cfg.simulation.n_spectra,
+            n_random_lipid=cfg.simulation.lipid.n_random_lipid,
+            max_lipid_scaling=cfg.simulation.lipid.max_scaling,
+            min_snr=cfg.simulation.metabolite.min_snr,
+            max_snr=cfg.simulation.metabolite.max_snr,
+            n_timepoints=cfg.acquisition.n_timepoints,
+            sampling_rate=sampling_rate,
+            nmr_freq=cfg.acquisition.nmr_freq,
+            max_freq_shift=cfg.simulation.metabolite.max_freq_shift,
+            min_peak_width=cfg.simulation.metabolite.min_peak_width,
+            max_peak_width=cfg.simulation.metabolite.max_peak_width,
+            max_acqu_delay=cfg.simulation.metabolite.max_acqu_delay,
+            water_scaling_min=cfg.simulation.water.scaling_min,
+            water_scaling_max=cfg.simulation.water.scaling_max,
+            mean_std_path=cfg.simulation.metabolite.mean_std_path,
+            modes_glob=cfg.simulation.metabolite.modes_glob,
+            lipid_projection_target=cfg.lipid_projection.target,
+            lipid_projection_tol=cfg.lipid_projection.tol,
+            lipid_projection_max_iter=cfg.lipid_projection.max_iter,
+        )
 
-    print("ENDE!")
+    print("\nAll done!")

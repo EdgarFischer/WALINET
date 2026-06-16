@@ -2,7 +2,7 @@ run:
   seed: 42
 
 data:
-  base_dir: "../data/3T"
+  base_dir: "data/3T"
   subjects: ['Vol01_WB/Res64x64_Thick']
 
   paths:
