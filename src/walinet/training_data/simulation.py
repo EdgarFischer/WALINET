@@ -1,193 +1,431 @@
-import os
-import sys
-import numpy as np
-import nibabel as nib
-import h5py
-import time
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import pandas as pd
-import re
+# src/walinet/training_data/simulation.py
+
+from pathlib import Path
 import glob
+import re
+import h5py
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+def read_mode_files(index: dict, list_file: list[str]) -> list[np.ndarray]:
+    n_metabolites = len(list_file)
+    modes = [None] * n_metabolites
+
+    for filename in list_file:
+        metabo_mode = pd.read_csv(filename, header=None, skiprows=[0]).values
+
+        match = re.search(r"[0-9]T_.{1,6}_Exact", filename)
+        if match is None:
+            raise ValueError(f"Could not extract metabolite name from: {filename}")
+
+        name = bytes(filename[match.span()[0] + 3 : match.span()[1] - 6].strip(), "utf8")
+        modes[index[name]] = metabo_mode
+
+    return modes
 
 
+def load_metabolite_modes(
+    mean_std_path: str | Path,
+    modes_glob: str,
+):
+    mean_std_csv = pd.read_csv(mean_std_path, header=None).values
 
-def simulation(nSpectra=60, sub='Sub1'):
-    p = '/autofs/space/somes_002/users/pweiser/FittingChallenge2024/data/'+sub+'/'+sub+'_all.mat'
-    fh = h5py.File(p, 'r')
-
-    metab_basis = np.array(fh['VtMeta'])
-    metab_basis = metab_basis['real'] + 1j* metab_basis['imag']
-    fh.close()
-
-    metabolites = ['Asp', 'GABA', 'Gln', 'Glu', 'Lac', 'Lac41', 'NAA', 'NAAG', 'PE', 'PE40', 'Tau', 'mIns', 'sIno', 'tCho', 'tCr', 'tCr39']
-
-    # FYI: I put the same values for 'Lac41', 'PE40', 'tCr39' as for the regular metabolite groups.
-    # Should those metabolites be linked?
-    mean_values = np.array([3.0, 2.0, 2.0, 8.0, 0.5, 0.5, 10.0, 1.0, 0.7, 0.7, 1.5, 6.5, 0.35, 1.5, 6.0, 6.0])
-    std_values = np.array([2.0, 1.5, 1.5, 6.5, 5.0, 5.0, 7.0, 0.5, 0.5, 0.5, 1.0, 2.5, 0.15, 1.0, 5.5, 5.5])
-
-    ### Setting parameters ###
-    N=384
-    NbM = len(metabolites)
-
-    NMRFreq= 127.7 *10**6 #297189866.0 #
-
-    dwell_time = 8.3*10**(-4)  # 0.83ms
-    sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
-
-    t = (np.arange(N+2)[2:] / sampling_rate)
-    metab_basis = np.transpose(metab_basis[2:,:])
-
-    ### Simulation parameters ###
-    Amplitude = mean_values[None,:,None] * np.random.randn(nSpectra, NbM, 1) + std_values[None,:,None]
-    Amplitude = Amplitude.clip(min=0)
-
-    MaxAcquDelay=0.002
-    AcquDelay = (np.random.rand(nSpectra, 1,1)-0.5)*2 * MaxAcquDelay
-
-    PhShift=np.random.rand(nSpectra, NbM, 1) * 2 * np.pi
-    TimeSerieClean = np.zeros(( N), dtype=np.complex64)
-
-    MaxFreq_Shift = 40
-    FreqShift = (np.random.rand(nSpectra, 1)*2 - 1) * MaxFreq_Shift
-
-    MinPeak_Width=2.5
-    MaxPeak_Width=7.5
-    PeakWidth = MinPeak_Width + np.random.rand(nSpectra, 1) * (MaxPeak_Width - MinPeak_Width)
-    PeakWidth_Gau = PeakWidth
-
-    MinPeak_Width=22.5
-    MaxPeak_Width=27.5
-    PeakWidth = MinPeak_Width + np.random.rand(nSpectra, 1) * (MaxPeak_Width - MinPeak_Width)
-    PeakWidth_Lor = PeakWidth
-
-    ### Simulation of Spectra ###
-    MetabData_smt = metab_basis[None,:] * np.exp(2 * np.pi * 1j * (t[None,None,:] + AcquDelay))
-    MetabData_smt = Amplitude * MetabData_smt * np.exp(1j * PhShift)  
-    MetabData_st = np.sum(MetabData_smt, axis=1)
-
-    MetabData_st *= np.exp( (t[None,:]* 1j * 2 * np.pi * FreqShift ) + (- (np.square(t[None,:])) * (np.square(PeakWidth_Gau))) + ((np.absolute(t[None,:])) * (- PeakWidth_Lor) ) )
-    MetabData_sf = np.fft.fftshift(np.fft.fft(np.conj(MetabData_st), axis=-1), axes=-1)
-
-    spectra_energy = np.mean(np.sqrt(np.sum(np.abs(MetabData_sf)**2, axis=-1)))
-    MetabData_sf/=spectra_energy
-
-    return MetabData_sf
-
-
-def simulation2(nSpectra=60):
-    MaxSNR=8 # not used
-    MinSNR=1 # not used
-
-    N=384
-    NMRFreq= 127.7 *10**6 #297189866.0 #
-
-    dwell_time = 8.3*10**(-4)  # 0.83ms
-    sampling_rate = 1/dwell_time  # Hz  sampling_rate = 1/dwell_time
-
-    # Calculate the time vector
-    t = np.arange(N) / sampling_rate
-
-    # Simulation parameters
-    MaxAcquDelay=0.002
-    AcquDelay = (np.random.rand(nSpectra, 1)-0.5)*2 * MaxAcquDelay
-
-    PhShift=np.random.rand(nSpectra, 1) * 2 * np.pi
-    TimeSerieClean = np.zeros(( N), dtype=np.complex64)
-
-    MaxFreq_Shift = 40
-    FreqShift = (np.random.rand(nSpectra, 1)*2 - 1) * MaxFreq_Shift
-
-    #MinPeak_Width=10#4
-    #MaxPeak_Width=35#20
-    #PeakWidth = MinPeak_Width + np.random.rand(nSpectra, 1) * (MaxPeak_Width - MinPeak_Width)
-    #ponder_peaks = np.random.rand(nSpectra, 1)
-    #PeakWidth_Gau = np.multiply(ponder_peaks, PeakWidth)
-    #PeakWidth_Lor = np.multiply(1-ponder_peaks, PeakWidth)
-
-    MinPeak_Width=4
-    MaxPeak_Width=20
-    PeakWidth = MinPeak_Width + np.random.rand(nSpectra, 1) * (MaxPeak_Width - MinPeak_Width)
-    ponder_peaks = np.random.rand(nSpectra, 1)
-    PeakWidth_Gau = np.multiply(ponder_peaks, PeakWidth)
-
-    MinPeak_Width=15
-    MaxPeak_Width=45
-    PeakWidth = MinPeak_Width + np.random.rand(nSpectra, 1) * (MaxPeak_Width - MinPeak_Width)
-    ponder_peaks = np.random.rand(nSpectra, 1)
-    PeakWidth_Lor = np.multiply(1-ponder_peaks, PeakWidth)
-
-
-    SNR = MinSNR + np.random.rand(nSpectra, 1) * (MinSNR - MinSNR)
-
-
-
-    ########################################
-    #### Perpare metabolite information ####
-    ########################################
-    def ReadModeFiles(index,list_file):
-        NbM = len(list_file)
-        temp_modes = [None] * NbM  # empty list of size NbM 
-        for i, filename in enumerate(list_file):
-            metabo_mode = pd.read_csv(filename, header=None, skiprows=[0]).values
-            m = re.search("[0-9]T_.{1,6}_Exact", filename)
-            name = bytes(filename[m.span()[0]+3:m.span()[1]-6].strip(), 'utf8')
-            temp_modes[index[name]] = metabo_mode
-        return temp_modes
-
-    index = {}  # mapping of metabolite name to index
-    mean_std_csv = pd.read_csv('/autofs/space/somes_002/users/pweiser/FittingChallenge2024/'+'/MetabModes/Metab_Mean_STD.txt', header=None).values
-
-    for i, v in enumerate(mean_std_csv[:, 0].astype(str)):
-        index[ bytes(v.strip(), 'utf8') ] = i
+    index = {}
+    for i, value in enumerate(mean_std_csv[:, 0].astype(str)):
+        index[bytes(value.strip(), "utf8")] = i
 
     mean_std = mean_std_csv[:, 1:].astype(np.float32)
 
-    list_file = glob.glob('/autofs/space/somes_002/users/pweiser/FittingChallenge2024/'+'/MetabModes/3T_TE0/*Exact_Modes.txt')
-    NbM = len(list_file)
-    metabo_modes = [[[None] for j in range(NbM)] for i in range(6)]
-    temp_modes = ReadModeFiles(index,list_file)
-    metabo_modes[0]=temp_modes
+    list_file = glob.glob(modes_glob)
+    if len(list_file) == 0:
+        raise FileNotFoundError(f"No metabolite mode files found for glob: {modes_glob}")
 
-    # Metabolic parameters
-    TempMetabData = np.zeros( (len(metabo_modes[0]), N), dtype=np.complex64)
-    BasisI = 0#np.floor(np.random.rand(nSpectra, 1) * 6)
+    n_metabolites = len(list_file)
+    metabo_modes = [[[None] for _ in range(n_metabolites)] for _ in range(6)]
+    metabo_modes[0] = read_mode_files(index, list_file)
 
-    Amplitude = mean_std[:, 1]* np.random.randn(nSpectra, NbM) + mean_std[:, 0]
-    Amplitude = Amplitude.clip(min=0)
+    return metabo_modes, mean_std
 
 
-    #############################
-    #### Simulate metabolite ####
-    #############################
+def simulate_metabolite_spectra(
+    *,
+    rng: np.random.Generator,
+    n_spectra: int,
+    n_timepoints: int,
+    sampling_rate: float,
+    nmr_freq: float,
+    mean_std_path: str | Path,
+    modes_glob: str,
+    max_acqu_delay: float,
+    max_freq_shift: float,
+    min_peak_width: float,
+    max_peak_width: float,
+    min_snr: float,
+    max_snr: float,
+) -> np.ndarray:
+    """
+    Simulate metabolite spectra.
 
-            
-    MetabSpectrum = np.zeros((nSpectra, N), dtype=np.complex128)
-    for n in tqdm(range(nSpectra)):
+    Returns:
+        metab_spectrum: (n_spectra, n_timepoints), complex
+    """
+    t = np.arange(n_timepoints) / sampling_rate
 
-        TempMetabData =0*TempMetabData
-        for f, mode in enumerate(metabo_modes[0]):   # metabo_modes[int(BasisI[n])]
-                Freq = ((4.7-mode[:, 0]) * 1e-6 * NMRFreq)[...,None]
+    acqu_delay = (rng.random((n_spectra, 1)) - 0.5) * 2 * max_acqu_delay
+    phase_shift = rng.random((n_spectra, 1)) * 2 * np.pi
+    freq_shift = (rng.random((n_spectra, 1)) * 2 - 1) * max_freq_shift
 
-                for Nuc in range(len(Freq)):
-                    if (mode[Nuc, 0] > 0.0) & (mode[Nuc, 0] < 4.5)  : # only for the window of interest 
-                        TempMetabData[f, :] += mode[Nuc, 1][...,None] * np.exp(1j * mode[Nuc, 2][...,None]) * np.exp(2 * np.pi * 1j * (t + AcquDelay[n])  * (Freq[Nuc]))
+    peak_width = min_peak_width + rng.random((n_spectra, 1)) * (
+        max_peak_width - min_peak_width
+    )
+    ponder_peaks = rng.random((n_spectra, 1))
+    peak_width_gau = ponder_peaks * peak_width
+    peak_width_lor = (1 - ponder_peaks) * peak_width
 
-        TimeSerieClean=0*TimeSerieClean
-        for f, _ in enumerate(metabo_modes[0]):  # metabo_modes[int(BasisI[ex])]
-            TimeSerieClean[:] += Amplitude[n, f] * TempMetabData[f, :]* np.exp(1j * PhShift[n])  
+    snr = min_snr + rng.random((n_spectra, 1)) * (max_snr - min_snr)
 
-        TimeSerieClean[:] *= np.exp( (t* 1j * 2 * np.pi * FreqShift[n] ) + (- (np.square(t)) * (np.square(PeakWidth_Gau[n]))) + ((np.absolute(t)) * (- PeakWidth_Lor[n]) ) )
-        SpectrumTemp = np.fft.fftshift(np.fft.fft(TimeSerieClean[:],axis=0))
+    metabo_modes, mean_std = load_metabolite_modes(
+        mean_std_path=mean_std_path,
+        modes_glob=modes_glob,
+    )
 
-        # SNR
-        #NCRand=(np.random.randn(N) + 1j * np.random.randn(N))
-        #TimeSerie = TimeSerieClean #+ np.fft.ifft(SpectrumTemp.std()/0.65 / SNR[n] * NCRand,axis=0)
-        
-        MetabSpectrum[n] = np.fft.fftshift(np.fft.fft(TimeSerieClean))
-    spectra_energy = np.sqrt(np.sum(np.abs(MetabSpectrum)**2, axis=-1))
-    MetabSpectrum/=np.mean(spectra_energy)
+    n_metabolites = len(metabo_modes[0])
 
-    return MetabSpectrum
-        
+    temp_metab_data = np.zeros(
+        (n_metabolites, n_timepoints),
+        dtype=np.complex64,
+    )
+    time_series_clean = np.zeros(
+        (n_timepoints,),
+        dtype=np.complex64,
+    )
+
+    amplitude = mean_std[:, 1] * rng.standard_normal((n_spectra, n_metabolites)) + mean_std[:, 0]
+    amplitude = amplitude.clip(min=0)
+
+    metab_spectrum = np.zeros(
+        (n_spectra, n_timepoints),
+        dtype=np.complex128,
+    )
+
+    for n in tqdm(range(n_spectra), miniters=100):
+        temp_metab_data[:] = 0
+
+        for f, mode in enumerate(metabo_modes[0]):
+            freq = ((4.7 - mode[:, 0]) * 1e-6 * nmr_freq)[..., None]
+
+            for nuc in range(len(freq)):
+                if (mode[nuc, 0] > 0.0) & (mode[nuc, 0] < 4.5):
+                    temp_metab_data[f, :] += (
+                        mode[nuc, 1][..., None]
+                        * np.exp(1j * mode[nuc, 2][..., None])
+                        * np.exp(
+                            2
+                            * np.pi
+                            * 1j
+                            * (t + acqu_delay[n])
+                            * freq[nuc]
+                        )
+                    )
+
+        time_series_clean[:] = 0
+
+        for f, _ in enumerate(metabo_modes[0]):
+            time_series_clean[:] += (
+                amplitude[n, f]
+                * temp_metab_data[f, :]
+                * np.exp(1j * phase_shift[n])
+            )
+
+        time_series_clean[:] *= np.exp(
+            (t * 1j * 2 * np.pi * freq_shift[n])
+            - (np.square(t) * np.square(peak_width_gau[n]))
+            - (np.abs(t) * peak_width_lor[n])
+        )
+
+        spectrum_temp = np.fft.fftshift(np.fft.fft(time_series_clean, axis=0))
+
+        noise = rng.standard_normal(n_timepoints) + 1j * rng.standard_normal(n_timepoints)
+
+        time_series = time_series_clean + np.fft.ifft(
+            spectrum_temp.std() / 0.65 / snr[n] * noise,
+            axis=0,
+        )
+
+        metab_spectrum[n] = np.fft.fftshift(np.fft.fft(time_series))
+
+    return metab_spectrum
+
+
+def simulate_lipid_spectra(
+    *,
+    rng: np.random.Generator,
+    image_rrrt: np.ndarray,
+    lipid_mask: np.ndarray,
+    metab_spectrum: np.ndarray,
+    n_random_lipid: int,
+    max_lipid_scaling: float,
+) -> np.ndarray:
+    """
+    Simulate lipid spectra from real lipid-mask voxels.
+
+    Returns:
+        lipid_rf: (n_spectra, n_timepoints)
+    """
+    n_spectra, n_timepoints = metab_spectrum.shape
+
+    lipid_rf = np.zeros(
+        (n_spectra, n_timepoints),
+        dtype=np.complex64,
+    )
+
+    image_rrrf = np.fft.fftshift(
+        np.fft.fft(image_rrrt, axis=-1),
+        axes=-1,
+    )
+
+    nonzero_indices = np.nonzero(lipid_mask)
+    n_lipid_voxels = int(np.sum(lipid_mask))
+
+    for i in range(n_spectra):
+        indices = rng.choice(n_lipid_voxels, size=n_random_lipid)
+
+        xx = nonzero_indices[0][indices]
+        yy = nonzero_indices[1][indices]
+        zz = nonzero_indices[2][indices]
+
+        lipid_batch = image_rrrf[xx, yy, zz, :]
+
+        lip_amp = rng.random(n_random_lipid)
+        lip_amp = lip_amp / np.sum(lip_amp)
+
+        lipid_rf[i] = np.sum(
+            lipid_batch * lip_amp[:, None],
+            axis=0,
+        )
+
+    lip_max = np.amax(np.abs(lipid_rf), axis=1)[:, None]
+    metab_max = np.amax(np.abs(metab_spectrum), axis=1)[:, None]
+
+    lipid_scaling = 1e-1 * (
+        10 ** (rng.random((n_spectra, 1)) * np.log10(1e1 * max_lipid_scaling))
+    )
+
+    lipid_rf = metab_max / lip_max * lipid_scaling * lipid_rf
+
+    return lipid_rf
+
+
+def simulate_water_spectra(
+    *,
+    rng: np.random.Generator,
+    water_rrrt: np.ndarray,
+    brain_mask: np.ndarray,
+    metab_spectrum: np.ndarray,
+    water_scaling_min: float = 0.0,
+    water_scaling_max: float = 100.0,
+) -> np.ndarray:
+    """
+    Simulate water spectra from isolated-water voxels.
+
+    Returns:
+        water_rf: (n_spectra, n_timepoints)
+    """
+    n_spectra, n_timepoints = metab_spectrum.shape
+
+    water_rf = np.zeros(
+        (n_spectra, n_timepoints),
+        dtype=np.complex64,
+    )
+
+    water_rrrf = np.fft.fftshift(
+        np.fft.fft(water_rrrt, axis=-1),
+        axes=-1,
+    )
+
+    nonzero_indices = np.nonzero(brain_mask)
+    n_brain_voxels = int(np.sum(brain_mask))
+
+    for i in range(n_spectra):
+        indices = rng.choice(n_brain_voxels, size=1)
+
+        xx = nonzero_indices[0][indices]
+        yy = nonzero_indices[1][indices]
+        zz = nonzero_indices[2][indices]
+
+        water_batch = water_rrrf[xx, yy, zz, :]
+
+        water_amp = rng.random(1) + 0.5
+
+        water_rf[i] = np.sum(
+            water_batch * water_amp[:, None],
+            axis=0,
+        )
+
+    water_max = np.amax(np.abs(water_rf), axis=1)[:, None]
+    metab_max = np.amax(np.abs(metab_spectrum), axis=1)[:, None]
+
+    water_scaling = rng.uniform(
+    water_scaling_min,
+    water_scaling_max,
+    size=(n_spectra, 1),
+)
+
+    water_rf = metab_max / water_max * water_scaling * water_rf
+
+    return water_rf
+
+
+def assemble_training_spectra(
+    *,
+    metab_spectrum: np.ndarray,
+    lipid_rf: np.ndarray,
+    water_rf: np.ndarray,
+    lipid_proj_operator_ff: np.ndarray,
+):
+    spectra = water_rf + lipid_rf + metab_spectrum
+    lipid_proj = np.matmul(spectra, lipid_proj_operator_ff)
+
+    return spectra, lipid_proj
+
+
+def finite_row_mask(*arrays: np.ndarray) -> np.ndarray:
+    """
+    Return mask for rows where all provided arrays are finite.
+    Assumes arrays have first dimension = n_spectra.
+    """
+    if len(arrays) == 0:
+        raise ValueError("At least one array must be provided.")
+
+    keep_mask = np.ones(arrays[0].shape[0], dtype=bool)
+
+    for arr in arrays:
+        bad_rows = np.unique(np.argwhere(~np.isfinite(arr))[:, 0])
+        keep_mask &= ~np.isin(np.arange(arr.shape[0]), bad_rows)
+
+    return keep_mask
+
+def process_subject(
+    *,
+    sub: str,
+    path: str | Path,
+    version: str,
+    rng: np.random.Generator,
+    n_spectra: int,
+    n_random_lipid: int,
+    max_lipid_scaling: float,
+    min_snr: float,
+    max_snr: float,
+    n_timepoints: int,
+    sampling_rate: float,
+    nmr_freq: float,
+    max_freq_shift: float,
+    min_peak_width: float,
+    max_peak_width: float,
+    max_acqu_delay: float,
+    water_scaling_min: float,
+    water_scaling_max: float,
+    mean_std_path: str | Path,
+    modes_glob: str,
+    lipid_projection_target: float,
+    lipid_projection_tol: float,
+    lipid_projection_max_iter: int,
+):
+    subject_dir = Path(path) / sub
+
+    train_data_dir = subject_dir / "TrainData"
+    h5_path = train_data_dir / f"TrainData_{version}.h5"
+
+    if h5_path.exists():
+        raise FileExistsError(
+            f"Training data already exists for subject '{sub}':\n"
+            f"  {h5_path}\n\n"
+            f"This version name is already used. "
+            f"Please specify a different data version."
+        )
+
+    p_mask = subject_dir / "masks" / "brain_mask.npy"
+    p_cc = subject_dir / "OriginalData" / "data.npy"
+    p_scalp_mask = subject_dir / "masks" / "lipid_mask.npy"
+
+    brainmask = np.load(p_mask)
+    csi_rrrt = np.load(p_cc)
+    skmask = np.load(p_scalp_mask)
+
+    water_rrrt = np.load(subject_dir / "TrainData" / "IsolatedWater_v_1.0.npy")
+    image_rrrt = csi_rrrt - water_rrrt
+    print("loaded isolated water and reconstructed water-suppressed data")
+
+    data_rrrf = np.fft.fftshift(
+        np.fft.fft(csi_rrrt, axis=-1),
+        axes=-1,
+    )
+
+    lipid_proj_operator_ff = compute_lipid_projection_operator(
+        spectra=data_rrrf,
+        lipid_mask=skmask,
+        target=lipid_projection_target,
+        tol=lipid_projection_tol,
+        max_n_iter=lipid_projection_max_iter,
+    )
+
+    metab_spectrum = simulate_metabolite_spectra(
+        rng=rng,
+        n_spectra=n_spectra,
+        n_timepoints=n_timepoints,
+        sampling_rate=sampling_rate,
+        nmr_freq=nmr_freq,
+        mean_std_path=mean_std_path,
+        modes_glob=modes_glob,
+        max_acqu_delay=max_acqu_delay,
+        max_freq_shift=max_freq_shift,
+        min_peak_width=min_peak_width,
+        max_peak_width=max_peak_width,
+        min_snr=min_snr,
+        max_snr=max_snr,
+    )
+
+    lipid_rf = simulate_lipid_spectra(
+        rng=rng,
+        image_rrrt=image_rrrt,
+        lipid_mask=skmask,
+        metab_spectrum=metab_spectrum,
+        n_random_lipid=n_random_lipid,
+        max_lipid_scaling=max_lipid_scaling,
+    )
+
+    water_rf = simulate_water_spectra(
+        rng=rng,
+        water_rrrt=water_rrrt,
+        brain_mask=brainmask,
+        metab_spectrum=metab_spectrum,
+        water_scaling_min=water_scaling_min,
+        water_scaling_max=water_scaling_max,
+    )
+
+    spectra, lipid_proj = assemble_training_spectra(
+        metab_spectrum=metab_spectrum,
+        lipid_rf=lipid_rf,
+        water_rf=water_rf,
+        lipid_proj_operator_ff=lipid_proj_operator_ff,
+    )
+
+    keep_mask = finite_row_mask(spectra)
+    bad_rows = np.where(~keep_mask)[0]
+
+    print(f"[Clean] Gefundene fehlerhafte Zeilen: {bad_rows.tolist()}")
+    print(f"[Clean] Behalte {keep_mask.sum()} von {spectra.shape[0]} Zeilen")
+
+    train_data_dir.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(h5_path, "w") as hf:
+        hf.create_dataset("metab", data=metab_spectrum[keep_mask])
+        hf.create_dataset("water", data=water_rf[keep_mask])
+        hf.create_dataset("spectra", data=spectra[keep_mask])
+        hf.create_dataset("lipid_proj", data=lipid_proj[keep_mask])
+        hf.create_dataset("lipid", data=lipid_rf[keep_mask])
+        hf.create_dataset("lipid_projOP", data=lipid_proj_operator_ff)
+
+    print(f"Saved: {h5_path}")
