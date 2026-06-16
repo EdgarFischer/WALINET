@@ -71,7 +71,7 @@ MinPeak_Width   = 20
 MaxPeak_Width   = 100
 MaxAcquDelay    = 0.002
 
-
+np.random.seed(42)
 
 for sub in subjects:
     p_mask= path + sub + '/masks/brain_mask.npy'
