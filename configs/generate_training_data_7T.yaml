@@ -2,8 +2,8 @@ run:
   seed: 42
 
 data:
-  base_dir: "data/3T"
-  subjects: ['Vol01_WB/Res64x64_Thick']
+  base_dir: "../data/7T/B0corrected_wo_LipidMask"
+  subjects: ['Vol1_Brisbane']
 
   paths:
     brain_mask: "masks/brain_mask.npy"
@@ -13,18 +13,18 @@ data:
 
 water_removal:
   enabled: true
-  hsvd_components: 16
-  min_freq: -74
-  max_freq: 74
-  bandwidth: 939.85
+  hsvd_components: 32
+  min_freq: -150
+  max_freq: 150
+  bandwidth: 2778
   dwell_time: null
   parallel_jobs: 20
   slice_batch_size: 3
 
 acquisition:
-  bandwidth: 939.85
-  n_timepoints: 288
-  nmr_freq: 123231706.0
+  bandwidth: 2778
+  n_timepoints: 840
+  nmr_freq: 297222931.0
 
 lipid_projection:
   target: 0.938
@@ -36,11 +36,11 @@ simulation:
 
   metabolite:
     mean_std_path: "../MetabModes/Metab_Mean_STD.txt"
-    modes_glob: "../MetabModes/3T_TE0/*Exact_Modes.txt"
+    modes_glob: "../MetabModes/7T_TE0/*Exact_Modes.txt"
     min_snr: 1
     max_snr: 10
-    max_freq_shift: 40
-    min_peak_width: 20
+    max_freq_shift: 10 # paul hatte hier 40
+    min_peak_width: 10 # paul: 20
     max_peak_width: 100
     max_acqu_delay: 0.002
 
@@ -53,7 +53,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_2.0"
+  version: "v_Test"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false

@@ -390,7 +390,7 @@ def process_subject(
     csi_rrrt = np.load(p_cc)
     skmask = np.load(p_scalp_mask)
 
-    water_rrrt = np.load(subject_dir / "TrainData" / "IsolatedWater_v_1.0.npy")
+    water_rrrt = np.load(subject_dir / "TrainData" / f"IsolatedWater_{version}.npy")
     image_rrrt = csi_rrrt - water_rrrt
     print("loaded isolated water and reconstructed water-suppressed data")
 
