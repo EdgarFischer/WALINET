@@ -9,6 +9,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from walinet.training_data.lipid_removal import compute_lipid_projection_operator
+
+
 def read_mode_files(index: dict, list_file: list[str]) -> list[np.ndarray]:
     n_metabolites = len(list_file)
     modes = [None] * n_metabolites
@@ -20,7 +23,11 @@ def read_mode_files(index: dict, list_file: list[str]) -> list[np.ndarray]:
         if match is None:
             raise ValueError(f"Could not extract metabolite name from: {filename}")
 
-        name = bytes(filename[match.span()[0] + 3 : match.span()[1] - 6].strip(), "utf8")
+        name = bytes(
+            filename[match.span()[0] + 3 : match.span()[1] - 6].strip(),
+            "utf8",
+        )
+
         modes[index[name]] = metabo_mode
 
     return modes
@@ -38,9 +45,15 @@ def load_metabolite_modes(
 
     mean_std = mean_std_csv[:, 1:].astype(np.float32)
 
+    # For exact comparison with old code: keep glob order unchanged.
+    # Later, for cleaner reproducibility across systems, use:
+    # list_file = sorted(glob.glob(modes_glob))
     list_file = glob.glob(modes_glob)
+
     if len(list_file) == 0:
-        raise FileNotFoundError(f"No metabolite mode files found for glob: {modes_glob}")
+        raise FileNotFoundError(
+            f"No metabolite mode files found for glob: {modes_glob}"
+        )
 
     n_metabolites = len(list_file)
     metabo_modes = [[[None] for _ in range(n_metabolites)] for _ in range(6)]
@@ -51,7 +64,7 @@ def load_metabolite_modes(
 
 def simulate_metabolite_spectra(
     *,
-    rng: np.random.Generator,
+    rng,
     n_spectra: int,
     n_timepoints: int,
     sampling_rate: float,
@@ -68,23 +81,25 @@ def simulate_metabolite_spectra(
     """
     Simulate metabolite spectra.
 
+    Uses old np.random API via rng for exact comparison with old code.
+
     Returns:
         metab_spectrum: (n_spectra, n_timepoints), complex
     """
     t = np.arange(n_timepoints) / sampling_rate
 
-    acqu_delay = (rng.random((n_spectra, 1)) - 0.5) * 2 * max_acqu_delay
-    phase_shift = rng.random((n_spectra, 1)) * 2 * np.pi
-    freq_shift = (rng.random((n_spectra, 1)) * 2 - 1) * max_freq_shift
+    acqu_delay = (rng.rand(n_spectra, 1) - 0.5) * 2 * max_acqu_delay
+    phase_shift = rng.rand(n_spectra, 1) * 2 * np.pi
+    freq_shift = (rng.rand(n_spectra, 1) * 2 - 1) * max_freq_shift
 
-    peak_width = min_peak_width + rng.random((n_spectra, 1)) * (
+    peak_width = min_peak_width + rng.rand(n_spectra, 1) * (
         max_peak_width - min_peak_width
     )
-    ponder_peaks = rng.random((n_spectra, 1))
+    ponder_peaks = rng.rand(n_spectra, 1)
     peak_width_gau = ponder_peaks * peak_width
     peak_width_lor = (1 - ponder_peaks) * peak_width
 
-    snr = min_snr + rng.random((n_spectra, 1)) * (max_snr - min_snr)
+    snr = min_snr + rng.rand(n_spectra, 1) * (max_snr - min_snr)
 
     metabo_modes, mean_std = load_metabolite_modes(
         mean_std_path=mean_std_path,
@@ -97,12 +112,16 @@ def simulate_metabolite_spectra(
         (n_metabolites, n_timepoints),
         dtype=np.complex64,
     )
+
     time_series_clean = np.zeros(
         (n_timepoints,),
         dtype=np.complex64,
     )
 
-    amplitude = mean_std[:, 1] * rng.standard_normal((n_spectra, n_metabolites)) + mean_std[:, 0]
+    amplitude = (
+        mean_std[:, 1] * rng.randn(n_spectra, n_metabolites)
+        + mean_std[:, 0]
+    )
     amplitude = amplitude.clip(min=0)
 
     metab_spectrum = np.zeros(
@@ -145,9 +164,11 @@ def simulate_metabolite_spectra(
             - (np.abs(t) * peak_width_lor[n])
         )
 
-        spectrum_temp = np.fft.fftshift(np.fft.fft(time_series_clean, axis=0))
+        spectrum_temp = np.fft.fftshift(
+            np.fft.fft(time_series_clean, axis=0)
+        )
 
-        noise = rng.standard_normal(n_timepoints) + 1j * rng.standard_normal(n_timepoints)
+        noise = rng.randn(n_timepoints) + 1j * rng.randn(n_timepoints)
 
         time_series = time_series_clean + np.fft.ifft(
             spectrum_temp.std() / 0.65 / snr[n] * noise,
@@ -161,7 +182,7 @@ def simulate_metabolite_spectra(
 
 def simulate_lipid_spectra(
     *,
-    rng: np.random.Generator,
+    rng,
     image_rrrt: np.ndarray,
     lipid_mask: np.ndarray,
     metab_spectrum: np.ndarray,
@@ -190,7 +211,10 @@ def simulate_lipid_spectra(
     n_lipid_voxels = int(np.sum(lipid_mask))
 
     for i in range(n_spectra):
-        indices = rng.choice(n_lipid_voxels, size=n_random_lipid)
+        indices = rng.choice(
+            range(n_lipid_voxels),
+            size=n_random_lipid,
+        )
 
         xx = nonzero_indices[0][indices]
         yy = nonzero_indices[1][indices]
@@ -198,8 +222,12 @@ def simulate_lipid_spectra(
 
         lipid_batch = image_rrrf[xx, yy, zz, :]
 
-        lip_amp = rng.random(n_random_lipid)
+        lip_amp = rng.rand(n_random_lipid)
         lip_amp = lip_amp / np.sum(lip_amp)
+
+        # This draw was present in the old code, although unused.
+        # Keep it here to preserve the old random-number sequence.
+        _lipid_phase = 2 * np.pi * rng.rand(n_random_lipid)
 
         lipid_rf[i] = np.sum(
             lipid_batch * lip_amp[:, None],
@@ -210,7 +238,11 @@ def simulate_lipid_spectra(
     metab_max = np.amax(np.abs(metab_spectrum), axis=1)[:, None]
 
     lipid_scaling = 1e-1 * (
-        10 ** (rng.random((n_spectra, 1)) * np.log10(1e1 * max_lipid_scaling))
+        10
+        ** (
+            rng.rand(n_spectra, 1)
+            * np.log10(1e1 * max_lipid_scaling)
+        )
     )
 
     lipid_rf = metab_max / lip_max * lipid_scaling * lipid_rf
@@ -220,7 +252,7 @@ def simulate_lipid_spectra(
 
 def simulate_water_spectra(
     *,
-    rng: np.random.Generator,
+    rng,
     water_rrrt: np.ndarray,
     brain_mask: np.ndarray,
     metab_spectrum: np.ndarray,
@@ -249,7 +281,10 @@ def simulate_water_spectra(
     n_brain_voxels = int(np.sum(brain_mask))
 
     for i in range(n_spectra):
-        indices = rng.choice(n_brain_voxels, size=1)
+        indices = rng.choice(
+            range(n_brain_voxels),
+            size=1,
+        )
 
         xx = nonzero_indices[0][indices]
         yy = nonzero_indices[1][indices]
@@ -257,7 +292,7 @@ def simulate_water_spectra(
 
         water_batch = water_rrrf[xx, yy, zz, :]
 
-        water_amp = rng.random(1) + 0.5
+        water_amp = rng.rand(1) + 0.5
 
         water_rf[i] = np.sum(
             water_batch * water_amp[:, None],
@@ -268,10 +303,10 @@ def simulate_water_spectra(
     metab_max = np.amax(np.abs(metab_spectrum), axis=1)[:, None]
 
     water_scaling = rng.uniform(
-    water_scaling_min,
-    water_scaling_max,
-    size=(n_spectra, 1),
-)
+        water_scaling_min,
+        water_scaling_max,
+        size=(n_spectra, 1),
+    )
 
     water_rf = metab_max / water_max * water_scaling * water_rf
 
@@ -307,12 +342,13 @@ def finite_row_mask(*arrays: np.ndarray) -> np.ndarray:
 
     return keep_mask
 
+
 def process_subject(
     *,
     sub: str,
     path: str | Path,
     version: str,
-    rng: np.random.Generator,
+    rng,
     n_spectra: int,
     n_random_lipid: int,
     max_lipid_scaling: float,

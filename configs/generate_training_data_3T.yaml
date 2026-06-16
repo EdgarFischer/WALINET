@@ -22,6 +22,6 @@ water_removal:
   slice_batch_size: 3
 
 output:
-  version: "v_1.0"
+  version: "v_2.0"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   overwrite: false

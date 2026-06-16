@@ -1,13 +1,16 @@
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
 
+ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
+
+os.chdir(ROOT)
+
 from walinet.training_data.simulation import process_subject
-
-
-os.chdir(Path(__file__).parent)
-
 
 # Notes:
 # v1 Test
@@ -18,16 +21,7 @@ version = "v_2.0"
 path = "data/3T/"
 
 subjects = [
-    "Vol01_WB/Res64x64_Thick",
-    "Vol01_WB/Res64x64_Thin",
-    "Vol02_BS/Res64x64_Thick",
-    "Vol02_BS/Res64x64_Thin",
-    "Vol03_SH/Res64x64_Thick",
-    "Vol03_SH/Res64x64_Thin",
-    "Vol04_SM/Res64x64_Thick",
-    "Vol04_SM/Res64x64_Thin",
-    "Vol05_LH/Res64x64_Thick",
-    "Vol05_LH/Res64x64_Thin",
+    "Vol01_WB/Res64x64_Thick"
 ]
 
 # ----------------
@@ -45,7 +39,7 @@ nmr_freq = 123231706.0  # Vienna: 7T: 297222931, 3T: 123231706
 # Simulation
 # ----------------
 
-n_spectra = 100000
+n_spectra = 10
 n_random_lipid = 10
 max_lipid_scaling = 70
 
@@ -75,8 +69,8 @@ lipid_projection_max_iter = 60
 # Reproducibility
 # ----------------
 
-rng = np.random.default_rng(42)
-
+np.random.seed(42)
+rng = np.random
 
 for sub in subjects:
     process_subject(
