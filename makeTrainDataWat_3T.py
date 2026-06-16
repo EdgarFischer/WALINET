@@ -27,11 +27,7 @@ version='v_2.0'
 path = 'data/3T/'
 #USE_B0_CORRECTED = True
 
-subjects = ['Vol01_WB/Res64x64_Thick', 'Vol01_WB/Res64x64_Thin',
-            'Vol02_BS/Res64x64_Thick', 'Vol02_BS/Res64x64_Thin',
-            'Vol03_SH/Res64x64_Thick', 'Vol03_SH/Res64x64_Thin',
-            'Vol04_SM/Res64x64_Thick', 'Vol04_SM/Res64x64_Thin',
-            'Vol05_LH/Res64x64_Thick', 'Vol05_LH/Res64x64_Thin']
+subjects = ['Vol01_WB/Res64x64_Thick']
 
 # Water Removal
 # b_RemWat = True
@@ -44,7 +40,7 @@ bandwidth = 939.85 # Vienna: 7T: 2778; 3T: 939.85
 dwell_time = 1/bandwidth # Vienna 360000 nano seconds = 3.6*10⁻4 seconds
 
 # Simulation
-nSpectra=100000 #this should be the same as in the paper
+nSpectra=10 #this should be the same as in the paper
 nRandomLipid=10
 MaxLipidScaling=70
 
@@ -76,6 +72,7 @@ MaxPeak_Width   = 100
 MaxAcquDelay    = 0.002
 
 
+
 for sub in subjects:
     p_mask= path + sub + '/masks/brain_mask.npy'
     p_cc = path + sub + '/OriginalData/data.npy' # coil combined reconstructed data
@@ -98,8 +95,12 @@ for sub in subjects:
     ##### Water Removal #####
     #########################
 
-    water_rrrt=np.load(p_save + 'OriginalData/IsolatedWater.npy')
-    image_rrrt=np.load(p_save + 'OriginalData/SupressedWater.npy')
+    #water_rrrt=np.load(p_save + 'OriginalData/IsolatedWater.npy')
+    #image_rrrt=np.load(p_save + 'OriginalData/SupressedWater.npy')
+
+    water_rrrt = np.load(Path(p_save) / "TrainData" / "IsolatedWater_v_2.0.npy")
+    image_rrrt = csi_rrrt - water_rrrt
+
     print('loaded water peaks')
 
     #####################################
