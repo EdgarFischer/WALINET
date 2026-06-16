@@ -52,7 +52,7 @@ max_peak_width = 100
 max_acqu_delay = 0.002
 
 water_scaling_min = 10.0
-water_scaling_max = 100.0
+water_scaling_max = 110.0
 
 mean_std_path = "MetabModes/Metab_Mean_STD.txt"
 modes_glob = "MetabModes/3T_TE0/*Exact_Modes.txt"
