@@ -85,6 +85,8 @@ def compute_lipid_projection_operator(
     lipid_proj_operator_ff = identity - rem_op
 
     fac = diag_mean(beta, M)
-    logging.info("Achieved diag-mean = %.4f at beta = %.2e", fac, beta)
+    msg = f"Achieved diag-mean = {fac:.4f} at beta = {beta:.2e}"
+    logging.info(msg)
+    print(msg)
 
     return lipid_proj_operator_ff
