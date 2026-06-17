@@ -49,6 +49,7 @@ class SchedulerCfg:
 
 @dataclass(frozen=True)
 class ModelCfg:
+    architecture: str
     n_layers: int
     n_filters: int
     in_channels: int

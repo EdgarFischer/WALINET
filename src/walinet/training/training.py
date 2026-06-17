@@ -9,7 +9,20 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+def forward_model(model, spectra_all, spectra_idlip, params):
+    architecture = params.get("architecture", "ynet")
 
+    if architecture == "ynet":
+        return model(spectra_all, spectra_idlip)
+
+    elif architecture == "unet":
+        return model(spectra_all)
+
+    else:
+        raise ValueError(
+            f"Unknown architecture '{architecture}'. "
+            "Use 'ynet' or 'unet'."
+        )
 
 def training(model, params, dataloader, device, epoch):
     model.train()
@@ -30,7 +43,12 @@ def training(model, params, dataloader, device, epoch):
         spectra_All, spectra_IDLip, spectra_Lip = spectra_All.to(device), spectra_IDLip.to(device), spectra_Lip.to(device)
         metab_energy, spectra_energy = metab_energy.to(device), spectra_energy.to(device)
 
-        pred = model(spectra_All, spectra_IDLip)
+        pred = forward_model(
+            model=model,
+            spectra_all=spectra_All,
+            spectra_idlip=spectra_IDLip,
+            params=params,
+        )
         
         loss = params["loss_func"](pred, spectra_Lip) #
         loss.backward()
@@ -54,31 +72,46 @@ def validation(model, params, dataloader, device, epoch):
     model.eval()
     epoch_loss = []
     sta_epoch = time.time()
+
     if params["n_val_batches"] == -1 or params["n_val_batches"] > len(dataloader):
         n_batches_tmp = len(dataloader)
     else:
         n_batches_tmp = params["n_val_batches"]
-    
-    for i,batch in enumerate(dataloader):
-        if i >= n_batches_tmp:
-            break
-        sta_batch = time.time()
-        
-        spectra_All, spectra_IDLip, spectra_Lip, metab_energy, spectra_energy = batch
-        spectra_All, spectra_IDLip, spectra_Lip = spectra_All.to(device), spectra_IDLip.to(device), spectra_Lip.to(device)
-        metab_energy, spectra_energy = metab_energy.to(device), spectra_energy.to(device)
-        
-        pred = model(spectra_All, spectra_IDLip)
-        loss = params["loss_func"](pred, spectra_Lip)
-        
-        epoch_loss.append(loss.cpu().item())
-        sto_batch = time.time() - sta_batch
-        if params["verbose"]:
-            log_batch = ' ~ ValEp: {:03d}, Batch: ({:03d}/{:03d}) Loss: {:.10f}, GPU-Time: {:.4f}'
-            print(log_batch.format(epoch+1, i+1, n_batches_tmp, loss.item(), sto_batch))
-        
+
+    with torch.no_grad():
+        for i, batch in enumerate(dataloader):
+            if i >= n_batches_tmp:
+                break
+
+            sta_batch = time.time()
+
+            spectra_All, spectra_IDLip, spectra_Lip, metab_energy, spectra_energy = batch
+            spectra_All = spectra_All.to(device)
+            spectra_IDLip = spectra_IDLip.to(device)
+            spectra_Lip = spectra_Lip.to(device)
+
+            metab_energy = metab_energy.to(device)
+            spectra_energy = spectra_energy.to(device)
+
+            pred = forward_model(
+                model=model,
+                spectra_all=spectra_All,
+                spectra_idlip=spectra_IDLip,
+                params=params,
+            )
+
+            loss = params["loss_func"](pred, spectra_Lip)
+
+            epoch_loss.append(loss.cpu().item())
+
+            sto_batch = time.time() - sta_batch
+            if params["verbose"]:
+                log_batch = " ~ ValEp: {:03d}, Batch: ({:03d}/{:03d}) Loss: {:.10f}, GPU-Time: {:.4f}"
+                print(log_batch.format(epoch + 1, i + 1, n_batches_tmp, loss.item(), sto_batch))
+
     epoch_loss = np.mean(np.array(epoch_loss))
     sto_epoch = time.time() - sta_epoch
-    log_epoch = 'ValEp: {:03d}, Loss: {:.10f}, Time: {:.4f}'
-    print(log_epoch.format(epoch+1, epoch_loss , sto_epoch))
+    log_epoch = "ValEp: {:03d}, Loss: {:.10f}, Time: {:.4f}"
+    print(log_epoch.format(epoch + 1, epoch_loss, sto_epoch))
+
     return epoch_loss

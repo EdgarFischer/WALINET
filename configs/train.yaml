@@ -34,6 +34,7 @@ scheduler:
   gamma: 0.25
 
 model:
+  architecture: "ynet"   # "ynet" or "unet"
   n_layers: 3
   n_filters: 8
   in_channels: 2

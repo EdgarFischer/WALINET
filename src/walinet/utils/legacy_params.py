@@ -39,6 +39,7 @@ def cfg_to_params(cfg) -> dict:
     params["gamma"] = cfg.scheduler.gamma
 
     # Model params
+    params["architecture"] = cfg.model.architecture
     params["nLayers"] = cfg.model.n_layers
     params["nFilters"] = cfg.model.n_filters
     params["in_channels"] = cfg.model.in_channels

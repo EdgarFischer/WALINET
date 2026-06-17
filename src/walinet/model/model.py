@@ -31,81 +31,101 @@ class uModel(nn.Module):
         self.nFilters = nFilters
         self.kernel_size = 3
         self.out_channels = out_channels
-        self.in_channels = 2*in_channels
+        self.in_channels = in_channels
         self.dropout = dropout
         self.pool_size = 2
-        self.multFilter = [2**i for i in range(self.nLayers+1)]
+        self.multFilter = [2**i for i in range(self.nLayers + 1)]
 
-        
-        self.encoder = nn.ModuleList([DownBlock(in_channels = int(self.in_channels*self.nFilters*self.multFilter[i]), 
-                                            out_channels = self.in_channels*self.nFilters*self.multFilter[i+1], 
-                                            kernel_size = self.kernel_size,
-                                            pool_size=self.pool_size,
-                                            dropout=self.dropout
-                                           ) for i in range(self.nLayers)])
-        
-        self.decoder = nn.ModuleList([UpBlock(in_channels = out_channels*self.nFilters*self.multFilter[i+1] + int(self.in_channels*self.nFilters*self.multFilter[i]), 
-                                            out_channels = int(out_channels*self.nFilters*self.multFilter[i]), 
-                                            kernel_size = self.kernel_size,
-                                            dropout=self.dropout
-                                           ) for i in range(self.nLayers)])
-        
-        self.bottleconv = ConvBlock(in_channels=self.in_channels*self.nFilters*self.multFilter[-1], 
-                                    out_channels=out_channels*self.nFilters*self.multFilter[-1], 
-                                    kernel_size=self.kernel_size,
-                                    dropout=self.dropout)
-        
-        self.initconv=ConvBlock(in_channels=self.in_channels, 
-                                out_channels=self.in_channels*self.nFilters*self.multFilter[0], 
-                                kernel_size=self.kernel_size,
-                                dropout=0,
-                                batchnorm=False)
-        
-                     
-        self.finconv1=ConvBlock(in_channels=int(out_channels*self.nFilters*self.multFilter[0]) + self.in_channels + self.in_channels*self.nFilters*self.multFilter[0], 
-                                out_channels=int(out_channels*self.nFilters*self.multFilter[0]), 
-                                kernel_size=self.kernel_size,
-                                dropout=self.dropout,
-                                batchnorm=False,
-                                mid_channels='in')
-        
-        self.finconv2=ConvBlock(in_channels=int(out_channels*self.nFilters*self.multFilter[0]) + self.in_channels + self.in_channels*self.nFilters*self.multFilter[0], 
-                                out_channels=out_channels, 
-                                kernel_size=1,
-                                dropout=0,
-                                batchnorm=False,
-                                mid_channels='in',
-                                activation=False)
-        
-        
-    def forward(self, x1, y1):
-        orig_len = x1.size(-1)                 # 840
-        mult     = 2 ** self.nLayers           # power-of-two stride
+        self.encoder = nn.ModuleList([
+            DownBlock(
+                in_channels=int(self.in_channels * self.nFilters * self.multFilter[i]),
+                out_channels=self.in_channels * self.nFilters * self.multFilter[i + 1],
+                kernel_size=self.kernel_size,
+                pool_size=self.pool_size,
+                dropout=self.dropout,
+            )
+            for i in range(self.nLayers)
+        ])
 
-        # ❶ replicate pad (old behaviour)
-        x1 = F.pad(x1, (8, 8),  'replicate')
-        y1 = F.pad(y1, (8, 8),  'replicate')
+        self.decoder = nn.ModuleList([
+            UpBlock(
+                in_channels=out_channels * self.nFilters * self.multFilter[i + 1]
+                + int(self.in_channels * self.nFilters * self.multFilter[i]),
+                out_channels=int(out_channels * self.nFilters * self.multFilter[i]),
+                kernel_size=self.kernel_size,
+                dropout=self.dropout,
+            )
+            for i in range(self.nLayers)
+        ])
+
+        self.bottleconv = ConvBlock(
+            in_channels=self.in_channels * self.nFilters * self.multFilter[-1],
+            out_channels=out_channels * self.nFilters * self.multFilter[-1],
+            kernel_size=self.kernel_size,
+            dropout=self.dropout,
+        )
+
+        self.initconv = ConvBlock(
+            in_channels=self.in_channels,
+            out_channels=self.in_channels * self.nFilters * self.multFilter[0],
+            kernel_size=self.kernel_size,
+            dropout=0,
+            batchnorm=False,
+        )
+
+        self.finconv1 = ConvBlock(
+            in_channels=int(out_channels * self.nFilters * self.multFilter[0])
+            + self.in_channels
+            + self.in_channels * self.nFilters * self.multFilter[0],
+            out_channels=int(out_channels * self.nFilters * self.multFilter[0]),
+            kernel_size=self.kernel_size,
+            dropout=self.dropout,
+            batchnorm=False,
+            mid_channels="in",
+        )
+
+        self.finconv2 = ConvBlock(
+            in_channels=int(out_channels * self.nFilters * self.multFilter[0])
+            + self.in_channels
+            + self.in_channels * self.nFilters * self.multFilter[0],
+            out_channels=out_channels,
+            kernel_size=1,
+            dropout=0,
+            batchnorm=False,
+            mid_channels="in",
+            activation=False,
+        )
+
+    def forward(self, x1):
+        orig_len = x1.size(-1)
+        mult = 2 ** self.nLayers
+
+        # ❶ replicate pad
+        x1 = F.pad(x1, (8, 8), "replicate")
 
         # ❷ zero pad to multiple of 2^nLayers
         x1, extra = _pad_to_multiple(x1, mult)
-        y1, _     = _pad_to_multiple(y1, mult)
 
-        # ---------- original network ----------
-        x  = torch.cat((x1, y1), dim=1)
-        x  = self.initconv(x)
+        # ---------- network ----------
+        x = self.initconv(x1)
         allx = [x]
+
         for i in range(self.nLayers):
             allx.append(self.encoder[i](allx[-1]))
-        out = self.bottleconv(allx[-1])
-        for i in range(self.nLayers):
-            out = self.decoder[-i-1]((out, allx[-i-2]))
-        out = torch.cat((out, x1, y1, x), dim=1)
-        out = self.finconv1(out)
-        out = torch.cat((out, x1, y1, x), dim=1)
-        out = self.finconv2(out)
-        # --------------------------------------
 
-        # ❸ crop: first 8 left, then keep exactly orig_len samples
+        out = self.bottleconv(allx[-1])
+
+        for i in range(self.nLayers):
+            out = self.decoder[-i - 1]((out, allx[-i - 2]))
+
+        out = torch.cat((out, x1, x), dim=1)
+        out = self.finconv1(out)
+
+        out = torch.cat((out, x1, x), dim=1)
+        out = self.finconv2(out)
+        # -----------------------------
+
+        # ❸ crop back to original length
         out = out[:, :, 8 : 8 + orig_len]
         return out
 
