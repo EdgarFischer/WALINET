@@ -20,19 +20,17 @@ The code is intended primarily as a research software framework for developing, 
 
 
 ## Table of Contents
-- [1. Overview](#1-overview)
-- [2. Installation](#2-installation)
-- [3. Usage](#3-usage)
-    - [3.1 Data Requirements](#31-data-requirements)
-    - [3.2 Simulations](#32-simulations)
-    - [3.3 Training the Network](#33-training-the-network)
-    - [3.4 Inference on Unseen Data](#34-inference-on-unseen-data)
 
-- [4. Novelties](#4-novelties)
-- [5. Results](#5-results)
-- [6. Data used for training so far](#6-data-used-so-far)
+- [Installation](#installation)
+- [Repository Structure](#repository-structure)
+- [Usage](#usage)
+  - [1. Prepare data](#1-prepare-data)
+  - [2. Generate Training Data](#2-generate-training-data)
+  - [3. Train a Model](#3-train-a-model)
+  - [4. Run Inference](#4-run-inference)
+- [Additional Notebooks](#additional-notebooks)
 
-## 1. Installation
+## Installation
 
 The recommended way to use this repository is through the provided Docker container.
 
@@ -54,8 +52,6 @@ This starts a container with the required Python environment and dependencies.
 
 ## Repository Structure
 
-## Repository Structure
-
 ```text
 configs/          YAML configuration files for training-data generation and model training
 data/             User-provided MRSI datasets and generated training data
@@ -72,7 +68,7 @@ tests/            Automated tests
 B0_correction/    Auxiliary B0-correction code; not required for the core WALINET workflow
 ```
 
-## 3. Usage
+## Usage
 
 The main workflows are controlled through YAML configuration files in `configs/`.
 
@@ -188,54 +184,3 @@ Inference requires:
 The repository may contain additional notebooks for downstream analysis, such as metabolite quantification or metabolite map visualization.
 
 These notebooks are not part of the core WALINET pipeline and may require additional external software or site-specific processing tools. They are kept mainly for reference and exploratory analysis.
-
-
-## 6. Data Used So Far
-
-# Data from Vienna (current data)
-
-The following datasets were provided by Bernhard Strasser, acquired on the 7 T scanner at the Medical University of Vienna:
-
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/bstrasser/Projects/Project9_ImplementRecoInICE/Step2_ISMRMAbstractOnPipeline/LargeData_d3hj/Results/Vol[VolNo]/Vol[VolNo]_64x64x35_DICOM_Ice73/CombinedCSI.mat
-
-
-- Available volumes: `Vol5`, `Vol6`, `Vol7`, `Vol8`
-
-In addition, Zeinab provided one more subject (measured under the same conditions), corresponding to:
-
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Bernhard_pipeline/Results/Vol9/Vol9_DICOM_NoL2/CombinedCSI.mat
-
-# Data from Vienna that Paul used (~2019)
-
-This data was used by Paul and has different FID length (960 instead of 840) then the rest of the data, and the bandwidth was slightly higher. It should not be used for training anymore.
-
-Paul Train data:
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/lab/Process_Results/3DMRSIMAP_Volunteers/PaulTrainData
-
-# Data from Brisbane
-
-Vol1:
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-2/DICOM_NoL2/
-
-Vol2: # Zeinab said that the quality of this one i snot so high. I double checked, this is good enough to use for WALINET training!
- /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-1/DICOM_NoL2/CombinedCSI.mat
-
-Vol3:
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-3/run-2-DICOM_NoL2/
-
-Vol4:
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-4/run-1-DICOM_NoL2/
-
-Vol5:
-/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/zeftekhari/Brisbane_Data/Results/MRSI-TEST-5/DICOM_NoL2/
-
-Vol6:
- /ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/home/bstrasser/Projects/Project9_ImplementRecoInICE/Step5_MultiCenterStudy/LargeData_d3hj/Results/Brisbane/MRSI-TEST-7/DICOM_NoL2
- 
-# Date Versions:
-
-1.0 Water peaks up to 110 times higher than metabos
-1.1 Water peaks up to 300 times higher than metabos
-2.0 is simulations for B0 corrected data with the same parameters as 1.0 for uncorrected data
-
-
