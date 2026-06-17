@@ -73,7 +73,7 @@ if __name__ == "__main__":
     from torch.optim.lr_scheduler import MultiStepLR
 
     from walinet.training.training import training, validation
-    from walinet.model.model import yModel
+    from walinet.model.model import yModel, uModel
     from walinet.data.dataloader import SpectrumDatasetLoad
 
     np.random.seed(cfg.run.seed)
@@ -124,13 +124,33 @@ if __name__ == "__main__":
         batch_size=params["batch_size"],
     )
 
-    model = yModel(
-        nLayers=params["nLayers"],
-        nFilters=params["nFilters"],
-        dropout=params["dropout"],
-        in_channels=params["in_channels"],
-        out_channels=params["out_channels"],
-    ).to(device)
+    architecture = params.get("architecture", "ynet")
+
+    if architecture == "ynet":
+        model = yModel(
+            nLayers=params["nLayers"],
+            nFilters=params["nFilters"],
+            dropout=params["dropout"],
+            in_channels=params["in_channels"],
+            out_channels=params["out_channels"],
+        ).to(device)
+
+    elif architecture == "unet":
+        model = uModel(
+            nLayers=params["nLayers"],
+            nFilters=params["nFilters"],
+            dropout=params["dropout"],
+            in_channels=params["in_channels"],
+            out_channels=params["out_channels"],
+        ).to(device)
+
+    else:
+        raise ValueError(
+            f"Unknown architecture '{architecture}'. "
+            "Use 'ynet' or 'unet'."
+        )
+
+    print(f"Using architecture: {architecture}")
 
     if params["preload"]:
         preload_path = (

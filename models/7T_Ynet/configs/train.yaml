@@ -1,7 +1,7 @@
 run:
-  name: "7T_Unet"
+  name: "7T_Ynet"
   seed: 42
-  gpu: 1
+  gpu: 2
 
 data:
   base_dir: "../data/7T/B0corrected_wo_LipidMask"
@@ -34,7 +34,7 @@ scheduler:
   gamma: 0.25
 
 model:
-  architecture: "unet"   # "ynet" or "unet"
+  architecture: "ynet"   # "ynet" or "unet"
   n_layers: 3
   n_filters: 8
   in_channels: 2
