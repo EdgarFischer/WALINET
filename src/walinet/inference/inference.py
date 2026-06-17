@@ -7,7 +7,7 @@ import torch
 
 eps = 1e-8  # Small epsilon to avoid division by zero
 
-def runNNLipRemoval2(device, exp, spectra, LipidProj_Operator_ff, headmask, batch_size=200):
+def runNNLipRemoval2(device, exp, spectra, LipidProj_Operator_ff, headmask, batch_size=200, normalization="projection_energy"):
     """
     Run your trained yModel to remove lipids from `spectra`.
 
@@ -66,12 +66,29 @@ def runNNLipRemoval2(device, exp, spectra, LipidProj_Operator_ff, headmask, batc
     model.to(device).eval()
 
     # — Compute per-voxel energy normalization factor
-    energy = torch.sqrt(torch.sum((lip_t - lipProj_t).abs()**2, dim=1) + eps)[:, None]
-    energy = torch.clamp(energy, min=1e-3)
+    # — Compute per-voxel normalization factor
+    if normalization == "projection_energy":
+        norm = torch.sqrt(
+            torch.sum((lip_t - lipProj_t).abs() ** 2, dim=1) + eps
+        )[:, None]
+
+    elif normalization == "max_abs":
+        norm = torch.amax(torch.abs(lip_t), dim=1, keepdim=True)
+
+    else:
+        raise ValueError(
+            f"Unknown normalization '{normalization}'. "
+            "Use 'projection_energy' or 'max_abs'."
+        )
+
+    norm = torch.clamp(norm, min=1e-8)
+
+    print(f"[runNNLipRemoval2] Using normalization: {normalization}")
 
     # — Normalize and pack real/imag into channels (Nsel, 2, T)
-    lip_norm     = lip_t     / energy
-    lipProj_norm = lipProj_t / energy
+    lip_norm     = lip_t     / norm
+    lipProj_norm = lipProj_t / norm
+
     lip_in     = torch.stack((lip_norm.real,     lip_norm.imag),     dim=1)
     lipProj_in = torch.stack((lipProj_norm.real, lipProj_norm.imag), dim=1)
 
@@ -87,7 +104,7 @@ def runNNLipRemoval2(device, exp, spectra, LipidProj_Operator_ff, headmask, batc
 
     # — Reconstruct complex prediction & scale back
     pred_c = preds[:,0,:] + 1j * preds[:,1,:]   # (Nsel, T)
-    pred_c = pred_c * energy.cpu()              # broadcast (Nsel,1) × (Nsel,T)
+    pred_c = pred_c * norm.cpu()              # broadcast (Nsel,1) × (Nsel,T)
 
     # — Subtract predicted lipid from original
     removed = lip_t.cpu() - pred_c              # (Nsel, T)
