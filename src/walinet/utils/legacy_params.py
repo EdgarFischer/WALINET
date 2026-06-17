@@ -22,6 +22,7 @@ def cfg_to_params(cfg) -> dict:
     params["train_subjects"] = list(cfg.data.train_subjects)
     params["val_subjects"] = list(cfg.data.val_subjects)
     params["data_version"] = cfg.data.version
+    params["normalization"] = cfg.data.normalization
 
     # Train params
     params["gpu"] = cfg.run.gpu

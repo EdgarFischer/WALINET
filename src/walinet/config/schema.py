@@ -16,6 +16,7 @@ class DataCfg:
     val_subjects: List[str]
     version: str
     train_data_filename: str
+    normalization: str = "projection_energy"
 
 
 @dataclass(frozen=True)

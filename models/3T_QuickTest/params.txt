@@ -1,0 +1,27 @@
+model_name: 3T_QuickTest
+path_to_model: /workspace/walinet/configs/../models/3T_QuickTest/
+path_to_data: /workspace/walinet/configs/../data/3T/
+train_subjects: ['Vol01_WB/Res64x64_Thick']
+val_subjects: ['Vol01_WB/Res64x64_Thick']
+data_version: v_2.0
+normalization: max_abs
+gpu: 3
+batch_size: 5600
+num_worker: 0
+lr: 0.00025
+epochs: 2
+verbose: False
+n_batches: -1
+n_val_batches: -1
+milestones: [150, 300, 500]
+gamma: 0.25
+nLayers: 3
+nFilters: 8
+in_channels: 2
+out_channels: 2
+dropout: 0.0
+clean_model: False
+train: True
+predict: False
+preload: False
+preload_model: 

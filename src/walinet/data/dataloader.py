@@ -57,10 +57,26 @@ class SpectrumDatasetLoad(Dataset):
         self.lip_max = torch.amax(np.abs(self.spectra), dim=-1)
         
         
-        norm = self.spectra_energy #self.lip_max #self.metab_energy
-        self.spectra /= norm[:,None]
-        self.nuisance_proj /= norm[:,None]
-        self.nuisance /= norm[:,None]
+        normalization = params.get("normalization", "projection_energy")
+
+        if normalization == "projection_energy":
+            norm = self.spectra_energy
+
+        elif normalization == "max_abs":
+            norm = torch.amax(torch.abs(self.spectra), dim=-1)
+
+        else:
+            raise ValueError(
+                f"Unknown normalization '{normalization}'. "
+                "Use 'projection_energy' or 'max_abs'."
+            )
+
+        norm = torch.clamp(norm, min=1e-8)
+
+        self.spectra /= norm[:, None]
+        self.nuisance_proj /= norm[:, None]
+        self.nuisance /= norm[:, None]
+
         self.metab_max = torch.amax(np.abs(self.spectra[:,s1:s2]-self.nuisance[:,s1:s2]), dim=-1)
 
         self.s = self.spectra.shape

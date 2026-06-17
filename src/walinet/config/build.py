@@ -98,6 +98,11 @@ def validate_config(cfg: TrainConfig) -> None:
 
     if cfg.model.dropout < 0:
         raise ValueError("model.dropout must be >= 0.")
+    
+    if cfg.data.normalization not in ["projection_energy", "max_abs"]:
+        raise ValueError(
+            "data.normalization must be 'projection_energy' or 'max_abs'."
+        )
 
 
 def build_config(
@@ -122,6 +127,7 @@ def build_config(
         train_data_filename=str(
             data_raw.get("train_data_filename", "TrainData_{version}.h5")
         ),
+        normalization=str(data_raw.get("normalization", "projection_energy")),
     )
 
     output_raw = raw["output"]
