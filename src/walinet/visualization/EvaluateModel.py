@@ -964,3 +964,29 @@ def plot_train_inference_grid(
     fig.tight_layout(pad=0.45, w_pad=0.6, h_pad=0.35)
 
     return fig, axes
+
+def compute_normalized_nuisance_mse(res, normalization="projection_energy", eps=1e-8):
+    spectra = res["spectra"]
+    target = res["target_nuisance"]
+    pred = res["pred_nuisance"]
+    lipid_proj = res["lipid_proj"]
+
+    valid = np.isfinite(spectra).all(axis=1) & np.isfinite(target).all(axis=1) & np.isfinite(pred).all(axis=1)
+
+    spectra = spectra[valid]
+    target = target[valid]
+    pred = pred[valid]
+
+    if normalization == "projection_energy":
+        lipid_proj = lipid_proj[valid]
+        norm = np.sqrt(np.sum(np.abs(spectra - lipid_proj) ** 2, axis=1, keepdims=True) + eps)
+
+    elif normalization == "max_abs":
+        norm = np.max(np.abs(spectra), axis=1, keepdims=True)
+
+    else:
+        raise ValueError("normalization must be 'projection_energy' or 'max_abs'.")
+
+    norm = np.maximum(norm, eps)
+
+    return float(np.mean(np.abs(pred / norm - target / norm) ** 2))

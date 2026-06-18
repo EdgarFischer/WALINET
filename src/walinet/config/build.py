@@ -165,7 +165,7 @@ def build_config(
     model_raw = raw["model"]
 
     model = ModelCfg(
-        architecture=str(model_raw.get("architecture", "ymodel")),
+        architecture=str(model_raw.get("architecture", "ynet")),
         n_layers=int(model_raw["n_layers"]),
         n_filters=int(model_raw["n_filters"]),
         in_channels=int(model_raw["in_channels"]),
