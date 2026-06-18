@@ -6,6 +6,8 @@ The original WALINET method was published in [Weiser et al., 2024](https://doi.o
 
 This repository is based on the original WALINET implementation by Paul Weiser and collaborators. The codebase has been substantially refactored to improve reproducibility, configuration management, training-data generation, and usability across different datasets and acquisition settings.
 
+In addition to the original WALINET Y-Net architecture, this repository also supports an experimental single-input U-Net variant with alternative normalization schemes. When used with maximum-absolute-value normalization, this variant avoids the need for lipid masks and subject-specific lipid projection operators at inference time. This functionality is experimental and should be validated for each dataset and acquisition setting.
+
 > **Note**  
 > Due to data-sharing restrictions, the MRSI datasets used for training and evaluation cannot be distributed as part of this repository. Users must provide their own MRSI datasets in the expected format to generate training data, train models, and perform inference.
 
