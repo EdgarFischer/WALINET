@@ -26,6 +26,12 @@ def interactive_spectra_viewer_multi(
     same_ylim=False,
     overlay_first_two=True,
     metabolite_lines=None,
+    extra_spectrum_funcs=None,
+    extra_labels=None,
+    extra_linestyle="-.",
+    extra_linewidth=1.4,
+    compact=True,
+    show_image_axes=False,
 ):
     """
     Interaktiver Viewer:
@@ -38,17 +44,25 @@ def interactive_spectra_viewer_multi(
         * sonst:
             alle Spektren separat
 
-    Erweiterungen:
-    - x_axis kann z.B. eine ppm-Achse sein.
-    - x_label setzt das Label der x-Achse.
-    - falls x_label == "ppm", wird die x-Achse invertiert.
-    - ppm_min / ppm_max erlauben Bereichsauswahl direkt in ppm.
-      Beispiel: ppm_min=2.0, ppm_max=4.7.
-      Wenn ppm_min/ppm_max gesetzt sind, überschreiben sie f_min/f_max.
-    - metabolite_lines kann ein Dictionary sein:
-        {"NAA": 2.01, "Cr": 3.03, ...}
-      Dann werden farbige vertikale Linien in allen Spektrenplots gezeichnet.
-      Die Beschriftung erscheint nur einmal rechts neben dem letzten Plot.
+    Neue Option:
+    - extra_spectrum_funcs:
+        optionale zusätzliche Kurven pro angezeigtem Plot.
+        Länge muss der Anzahl der angezeigten Plots entsprechen.
+
+        Beispiel bei 2 angezeigten Plots:
+            extra_spectrum_funcs=[
+                unet_func_for_plot_1,
+                unet_func_for_plot_2,
+            ]
+
+        Jeder Eintrag darf auch eine Liste von Funktionen sein:
+            extra_spectrum_funcs=[
+                [unet_func, other_func],
+                [unet_func_residual],
+            ]
+
+    - extra_labels:
+        Labels für diese zusätzlichen Kurven. Gleiche Struktur wie extra_spectrum_funcs.
     """
 
     image_volume = np.asarray(image_volume)
@@ -86,7 +100,7 @@ def interactive_spectra_viewer_multi(
                 f"Spektrum 0 hat Länge {F}, Spektrum {i} hat Länge {len(spec)}."
             )
 
-    # x-Achse vorbereiten: Index oder z.B. ppm
+    # x-Achse vorbereiten
     if x_axis is None:
         x_axis = np.arange(F)
     else:
@@ -101,9 +115,6 @@ def interactive_spectra_viewer_multi(
 
     # ppm-Bereich in Indexbereich umrechnen
     if ppm_min is not None or ppm_max is not None:
-        if x_axis is None:
-            raise ValueError("ppm_min/ppm_max benötigen eine x_axis, z.B. ppm.")
-
         if ppm_min is None:
             ppm_min = np.min(x_axis)
         if ppm_max is None:
@@ -135,7 +146,7 @@ def interactive_spectra_viewer_multi(
 
     use_overlay = overlay_first_two and (n_specs >= 3)
 
-    # Definition der Plot-Struktur rechts
+    # Plot-Struktur
     plot_defs = []
 
     if use_overlay:
@@ -179,20 +190,129 @@ def interactive_spectra_viewer_multi(
     if use_overlay and len(overlay_labels) != 2:
         raise ValueError("overlay_labels muss genau 2 Einträge haben.")
 
+    # Extra-Funktionen normalisieren: pro Plot eine Liste von Funktionen
+    def _normalize_extra_funcs(extra_spectrum_funcs):
+        if extra_spectrum_funcs is None:
+            return [[] for _ in range(n_plots)]
+
+        if len(extra_spectrum_funcs) != n_plots:
+            raise ValueError(
+                f"extra_spectrum_funcs muss Länge {n_plots} haben, "
+                f"hat aber Länge {len(extra_spectrum_funcs)}."
+            )
+
+        out = []
+        for item in extra_spectrum_funcs:
+            if item is None:
+                out.append([])
+            elif callable(item):
+                out.append([item])
+            elif isinstance(item, (list, tuple)):
+                if not all(callable(f) for f in item):
+                    raise ValueError("Alle Einträge in extra_spectrum_funcs müssen Funktionen sein.")
+                out.append(list(item))
+            else:
+                raise ValueError(
+                    "Jeder Eintrag in extra_spectrum_funcs muss None, "
+                    "eine Funktion oder eine Liste von Funktionen sein."
+                )
+
+        return out
+
+    extra_funcs_per_plot = _normalize_extra_funcs(extra_spectrum_funcs)
+
+    # Extra-Labels normalisieren
+    def _normalize_extra_labels(extra_labels):
+        if extra_labels is None:
+            return [
+                [f"extra {j+1}" for j in range(len(funcs))]
+                for funcs in extra_funcs_per_plot
+            ]
+
+        if len(extra_labels) != n_plots:
+            raise ValueError(
+                f"extra_labels muss Länge {n_plots} haben, "
+                f"hat aber Länge {len(extra_labels)}."
+            )
+
+        out = []
+
+        for plot_idx, item in enumerate(extra_labels):
+            n_extra = len(extra_funcs_per_plot[plot_idx])
+
+            if n_extra == 0:
+                out.append([])
+                continue
+
+            if isinstance(item, str):
+                if n_extra != 1:
+                    raise ValueError(
+                        "Ein String als extra_label ist nur erlaubt, "
+                        "wenn genau eine extra Kurve im Plot liegt."
+                    )
+                out.append([item])
+
+            elif isinstance(item, (list, tuple)):
+                if len(item) != n_extra:
+                    raise ValueError(
+                        f"extra_labels[{plot_idx}] muss Länge {n_extra} haben, "
+                        f"hat aber Länge {len(item)}."
+                    )
+                out.append(list(item))
+
+            else:
+                raise ValueError(
+                    "extra_labels muss pro Plot ein String oder eine Liste von Strings sein."
+                )
+
+        return out
+
+    extra_labels_per_plot = _normalize_extra_labels(extra_labels)
+
+    # Extra-Initialdaten prüfen
+    extra_init_data = []
+
+    for plot_idx, funcs in enumerate(extra_funcs_per_plot):
+        curves = []
+
+        for func in funcs:
+            spec = np.asarray(func(x_init, y_init, z_init)).squeeze()
+
+            if spec.ndim != 1:
+                raise ValueError("Alle extra_spectrum_funcs müssen 1D-Arrays zurückgeben.")
+            if len(spec) != F:
+                raise ValueError(
+                    f"Extra-Spektrum in Plot {plot_idx} hat Länge {len(spec)}, "
+                    f"erwartet wurde {F}."
+                )
+
+            curves.append(spec[f_min:f_max + 1])
+
+        extra_init_data.append(curves)
+
     # Layout
     ncols_spec = max(1, int(ncols_spec))
     nrows_spec = math.ceil(n_plots / ncols_spec)
 
     if figsize is None:
-        figsize = (6 + 5.2 * ncols_spec, max(4.5, 3.2 * nrows_spec + 1.5))
+        if compact:
+            figsize = (
+                4.8 + 4.1 * ncols_spec,
+                max(3.6, 2.55 * nrows_spec + 1.0),
+            )
+        else:
+            figsize = (
+                6 + 5.2 * ncols_spec,
+                max(4.5, 3.2 * nrows_spec + 1.5),
+            )
 
     fig = plt.figure(figsize=figsize)
 
     outer = fig.add_gridspec(
         1,
         2,
-        width_ratios=[1.0, 4.8],
-        wspace=0.28,
+        width_ratios=[0.75, 5.2] if compact else [1.0, 4.8],
+        wspace=0.12 if compact else 0.28,
     )
 
     # Linkes Bild
@@ -201,18 +321,24 @@ def interactive_spectra_viewer_multi(
     img0 = image_volume[:, :, z_init]
     im = ax_img.imshow(img0.T, origin="lower", cmap=cmap)
 
-    ax_img.set_title(f"Slice z={z_init}")
-    ax_img.set_xlabel("x")
-    ax_img.set_ylabel("y")
+    ax_img.set_title(f"z={z_init}")
+    marker, = ax_img.plot(x_init, y_init, "ro", markersize=4)
 
-    marker, = ax_img.plot(x_init, y_init, "ro")
+    if show_image_axes:
+        ax_img.set_xlabel("x")
+        ax_img.set_ylabel("y")
+    else:
+        ax_img.set_xticks([])
+        ax_img.set_yticks([])
+        ax_img.set_xlabel("")
+        ax_img.set_ylabel("")
 
     # Rechte Spektren
     spec_grid = outer[0, 1].subgridspec(
         nrows_spec,
         ncols_spec,
-        wspace=0.32,
-        hspace=0.45,
+        wspace=0.24 if compact else 0.32,
+        hspace=0.32 if compact else 0.45,
     )
 
     axes_spec = []
@@ -242,7 +368,7 @@ def interactive_spectra_viewer_multi(
                 x_plot,
                 spec0,
                 color="black",
-                linewidth=1.5,
+                linewidth=1.4,
                 alpha=0.9,
                 linestyle="-",
                 label=overlay_labels[0],
@@ -253,7 +379,7 @@ def interactive_spectra_viewer_multi(
                 x_plot,
                 spec1,
                 color="C3",
-                linewidth=1.5,
+                linewidth=1.4,
                 alpha=0.9,
                 linestyle="--",
                 label=overlay_labels[1],
@@ -269,7 +395,7 @@ def interactive_spectra_viewer_multi(
             line, = ax.plot(
                 x_plot,
                 spec,
-                linewidth=1.5,
+                linewidth=1.4,
                 alpha=0.9,
                 label=labels[plot_idx],
                 zorder=3,
@@ -277,15 +403,29 @@ def interactive_spectra_viewer_multi(
 
             current_lines.append(line)
 
-        ax.set_title(labels[plot_idx])
+        # Extra-Kurven in denselben Plot
+        for extra_idx, extra_curve in enumerate(extra_init_data[plot_idx]):
+            line_extra, = ax.plot(
+                x_plot,
+                extra_curve,
+                linewidth=extra_linewidth,
+                alpha=0.95,
+                linestyle=extra_linestyle,
+                label=extra_labels_per_plot[plot_idx][extra_idx],
+                zorder=4,
+            )
+            current_lines.append(line_extra)
+
+        ax.set_title(labels[plot_idx], fontsize=10 if compact else None)
         ax.set_xlabel(x_label)
         ax.set_ylabel("signal")
+        ax.margins(x=0.01, y=0.06)
 
         if x_label == "ppm":
             ax.invert_xaxis()
 
         if legend:
-            ax.legend(loc="best")
+            ax.legend(loc="best", fontsize=8 if compact else None)
 
         axes_spec.append(ax)
         plot_line_groups.append(current_lines)
@@ -301,8 +441,25 @@ def interactive_spectra_viewer_multi(
 
     current = {"x": x_init, "y": y_init, "z": z_init}
 
-    # Platz rechts für Metabolitenliste
-    plt.subplots_adjust(bottom=0.18, right=0.84)
+    # Weniger whitespace:
+    # Falls metabolite_lines vorhanden sind, rechts Platz lassen.
+    # Sonst fast bis an den Rand gehen.
+    right_margin = 0.84 if metabolite_lines else 0.97
+
+    if compact:
+        plt.subplots_adjust(
+            left=0.035,
+            right=right_margin,
+            bottom=0.12,
+            top=0.94,
+        )
+    else:
+        plt.subplots_adjust(
+            left=0.06,
+            right=right_margin,
+            bottom=0.18,
+            top=0.94,
+        )
 
     metabolite_artists = []
 
@@ -310,7 +467,6 @@ def interactive_spectra_viewer_multi(
         """
         Zeichnet Metabolitenlinien in alle Spektrenplots.
         Die Textliste wird nur einmal rechts neben dem letzten Spektrenplot gezeichnet.
-        Es werden nur Metaboliten angezeigt, die im aktuellen x_plot-Bereich liegen.
         """
         for artist in metabolite_artists:
             artist.remove()
@@ -339,7 +495,6 @@ def interactive_spectra_viewer_multi(
             reverse=True,
         )
 
-        # Linien in allen Spektrenplots
         for i, (name, xpos) in enumerate(visible_items):
             color = color_cycle[i % len(color_cycle)]
 
@@ -347,14 +502,13 @@ def interactive_spectra_viewer_multi(
                 line = ax.axvline(
                     xpos,
                     linestyle="--",
-                    linewidth=1.2,
+                    linewidth=1.0 if compact else 1.2,
                     alpha=0.75,
                     color=color,
                     zorder=1,
                 )
                 metabolite_artists.append(line)
 
-        # Beschriftung nur einmal beim letzten/rechten Plot
         label_ax = axes_spec[-1]
 
         for i, (name, xpos) in enumerate(visible_items):
@@ -378,10 +532,7 @@ def interactive_spectra_viewer_multi(
     def get_current_plot_data(x, y, z):
         """
         Liefert für jeden angezeigten Plot die aktuell geplotteten 1D-Daten.
-        Rückgabe:
-            list of list of np.ndarray
-            - bei Overlay: [spec0_crop, spec1_crop]
-            - bei Single:  [spec_crop]
+        Reihenfolge entspricht plot_line_groups.
         """
         full_specs = []
 
@@ -397,8 +548,20 @@ def interactive_spectra_viewer_multi(
 
         plot_data = []
 
-        for plot_def in plot_defs:
+        for plot_idx, plot_def in enumerate(plot_defs):
             curves = [full_specs[idx] for idx in plot_def["spec_indices"]]
+
+            # Extra-Kurven für diesen Plot anhängen
+            for func in extra_funcs_per_plot[plot_idx]:
+                spec = np.asarray(func(x, y, z)).squeeze()
+
+                if spec.ndim != 1:
+                    raise ValueError("Extra-Spektrumsfunktionen müssen 1D-Arrays zurückgeben.")
+                if len(spec) != F:
+                    raise ValueError("Extra-Spektrumlänge darf sich nicht zwischen Voxeln ändern.")
+
+                curves.append(spec[f_min:f_max + 1])
+
             plot_data.append(curves)
 
         return plot_data
@@ -430,17 +593,25 @@ def interactive_spectra_viewer_multi(
     # Initiale Skalierung
     init_plot_data = []
 
-    for plot_def in plot_defs:
+    for plot_idx, plot_def in enumerate(plot_defs):
         curves = []
+
         for idx in plot_def["spec_indices"]:
             curves.append(spec_init_list[idx][f_min:f_max + 1])
+
+        for extra_curve in extra_init_data[plot_idx]:
+            curves.append(extra_curve)
+
         init_plot_data.append(curves)
 
     apply_y_limits(init_plot_data)
     draw_metabolite_lines()
 
     # Slider
-    ax_slider = plt.axes([0.20, 0.04, 0.55, 0.03])
+    if compact:
+        ax_slider = plt.axes([0.16, 0.04, 0.62, 0.025])
+    else:
+        ax_slider = plt.axes([0.20, 0.04, 0.55, 0.03])
 
     z_slider = Slider(
         ax=ax_slider,
@@ -491,7 +662,7 @@ def interactive_spectra_viewer_multi(
 
         new_img = image_volume[:, :, z]
         im.set_data(new_img.T)
-        ax_img.set_title(f"Slice z={z}")
+        ax_img.set_title(f"z={z}")
 
         redraw_spectra()
         fig.canvas.draw_idle()
@@ -576,3 +747,220 @@ def make_spec_func(arr4d):
     def f(x, y, z):
         return arr4d[x, y, z, :]
     return f
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def plot_train_inference_grid(
+    res,
+    indices,
+    res_extra=None,
+    label="model A",
+    extra_label="model B",
+    x_axis=None,
+    x_label="ppm",
+    f_min=None,
+    f_max=None,
+    ppm_min=None,
+    ppm_max=None,
+    component="real",
+    figsize=None,
+    linewidth=1.0,
+    alpha=0.9,
+    grid=True,
+):
+    indices = list(indices)
+
+    spectra = res["spectra"]
+    target_nuisance = res["target_nuisance"]
+    pred_nuisance = res["pred_nuisance"]
+
+    if target_nuisance is None:
+        raise ValueError("res['target_nuisance'] is None.")
+
+    metabos_gt = spectra - target_nuisance
+    metabos_pred = spectra - pred_nuisance
+
+    if res_extra is not None:
+        pred_nuisance_extra = res_extra["pred_nuisance"]
+        metabos_pred_extra = res_extra["spectra"] - pred_nuisance_extra
+    else:
+        pred_nuisance_extra = None
+        metabos_pred_extra = None
+
+    N, F = spectra.shape
+
+    # exactly same logic as interactive viewer
+    if x_axis is None:
+        x_axis = np.arange(F)
+    else:
+        x_axis = np.asarray(x_axis).squeeze()
+        if x_axis.ndim != 1:
+            raise ValueError("x_axis must be 1D.")
+        if len(x_axis) != F:
+            raise ValueError(
+                f"x_axis must have same length as spectra. "
+                f"Expected {F}, got {len(x_axis)}."
+            )
+
+    # ppm range -> index range, same as viewer
+    if ppm_min is not None or ppm_max is not None:
+        if ppm_min is None:
+            ppm_min = np.min(x_axis)
+        if ppm_max is None:
+            ppm_max = np.max(x_axis)
+
+        ppm_low = min(ppm_min, ppm_max)
+        ppm_high = max(ppm_min, ppm_max)
+
+        valid_idx = np.where((x_axis >= ppm_low) & (x_axis <= ppm_high))[0]
+
+        if len(valid_idx) == 0:
+            raise ValueError(
+                f"No point of x_axis lies in range "
+                f"{ppm_low} to {ppm_high} ppm."
+            )
+
+        f_min = int(valid_idx.min())
+        f_max = int(valid_idx.max())
+
+    if f_min is None:
+        f_min = 0
+    if f_max is None:
+        f_max = F - 1
+
+    if not (0 <= f_min <= f_max < F):
+        raise ValueError(f"f_min/f_max must be in range 0 to {F-1}.")
+
+    x_plot = x_axis[f_min:f_max + 1]
+
+    def crop(arr):
+        return arr[..., f_min:f_max + 1]
+
+    def pick(arr):
+        arr = crop(arr)
+
+        if component == "real":
+            return np.real(arr)
+        elif component == "imag":
+            return np.imag(arr)
+        elif component == "abs":
+            return np.abs(arr)
+        elif component == "phase":
+            return np.angle(arr)
+        else:
+            raise ValueError("component must be 'real', 'imag', 'abs', or 'phase'.")
+
+    n_rows = len(indices)
+
+    if figsize is None:
+        figsize = (10.8, max(1.35 * n_rows + 0.8, 2.8))
+
+    # Important: sharex=False, otherwise invert_xaxis can toggle shared axes
+    fig, axes = plt.subplots(
+        n_rows,
+        3,
+        figsize=figsize,
+        squeeze=False,
+        sharex=False,
+    )
+
+    for row, i in enumerate(indices):
+        if i < 0 or i >= N:
+            raise ValueError(f"Index {i} outside valid range 0..{N-1}.")
+
+        ax0, ax1, ax2 = axes[row]
+
+        ax0.plot(
+            x_plot,
+            pick(spectra[i]),
+            color="black",
+            linewidth=linewidth,
+            alpha=alpha,
+            label="input",
+        )
+
+        ax1.plot(
+            x_plot,
+            pick(target_nuisance[i]),
+            color="black",
+            linewidth=linewidth,
+            alpha=alpha,
+            label="nuisance GT",
+        )
+        ax1.plot(
+            x_plot,
+            pick(pred_nuisance[i]),
+            color="C3",
+            linewidth=linewidth,
+            alpha=alpha,
+            label=f"{label} nuisance",
+        )
+
+        if pred_nuisance_extra is not None:
+            ax1.plot(
+                x_plot,
+                pick(pred_nuisance_extra[i]),
+                color="C0",
+                linewidth=linewidth,
+                alpha=alpha,
+                linestyle="--",
+                label=f"{extra_label} nuisance",
+            )
+
+        ax2.plot(
+            x_plot,
+            pick(metabos_gt[i]),
+            color="black",
+            linewidth=linewidth,
+            alpha=alpha,
+            label="metabos GT",
+        )
+        ax2.plot(
+            x_plot,
+            pick(metabos_pred[i]),
+            color="C3",
+            linewidth=linewidth,
+            alpha=alpha,
+            label=f"{label} metabos",
+        )
+
+        if metabos_pred_extra is not None:
+            ax2.plot(
+                x_plot,
+                pick(metabos_pred_extra[i]),
+                color="C0",
+                linewidth=linewidth,
+                alpha=alpha,
+                linestyle="--",
+                label=f"{extra_label} metabos",
+            )
+
+        if row == 0:
+            ax0.set_title("Input", fontsize=9)
+            ax1.set_title("Nuisance", fontsize=9)
+            ax2.set_title("Metabos", fontsize=9)
+
+        ax0.set_ylabel(f"#{i}", fontsize=8)
+
+        for ax in (ax0, ax1, ax2):
+            ax.tick_params(axis="both", labelsize=7)
+            ax.margins(x=0.01, y=0.05)
+
+            if grid:
+                ax.grid(alpha=0.15)
+
+            # same as interactive viewer
+            if x_label == "ppm":
+                ax.invert_xaxis()
+
+    for ax in axes[-1]:
+        ax.set_xlabel(x_label, fontsize=8)
+
+    for ax in axes[0]:
+        ax.legend(fontsize=6.5, loc="best", framealpha=0.85)
+
+    fig.tight_layout(pad=0.45, w_pad=0.6, h_pad=0.35)
+
+    return fig, axes
