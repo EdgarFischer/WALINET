@@ -3,7 +3,7 @@ run:
 
 data:
   base_dir: "../data/7T/B0corrected_wo_LipidMask"
-  subjects: ['Vol1_Brisbane']
+  subjects: ['Vol1_Brisbane', 'Vol3_Brisbane', 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol1_London', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol5', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
 
   paths:
     brain_mask: "masks/brain_mask.npy"
@@ -32,7 +32,7 @@ lipid_projection:
   max_iter: 60
 
 simulation:
-  n_spectra: 10
+  n_spectra: 100000
 
   metabolite:
     mean_std_path: "../MetabModes/Metab_Mean_STD.txt"
@@ -49,11 +49,11 @@ simulation:
     max_scaling: 70
 
   water:
-    scaling_min: 10.0
+    scaling_min: 0.1
     scaling_max: 110.0
 
 output:
-  version: "v_Test"
+  version: "v_1.1_final"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false
