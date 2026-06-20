@@ -9,7 +9,7 @@ timestamp=$(date +"%Y%m%d_%H%M%S")
 log_file="logs/logs_training/train_${timestamp}.log"
 
 nohup python3 -u scripts/train.py \
-  --config configs/train.yaml \
+  --config configs/train_3.yaml \
   > "$log_file" 2>&1 &
 
 echo "Started training."
