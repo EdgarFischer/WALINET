@@ -32,7 +32,7 @@ lipid_projection:
   max_iter: 60
 
 simulation:
-  n_spectra: 1000000
+  n_spectra: 100000
 
   metabolite:
     mean_std_path: "../MetabModes/Metab_Mean_STD.txt"
@@ -41,7 +41,7 @@ simulation:
     max_snr: 20
     max_freq_shift: 40
     min_peak_width: 20
-    max_peak_width: 100
+    max_peak_width: 250
     max_acqu_delay: 0.002
 
   lipid:
@@ -53,7 +53,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_1.0"
+  version: "v_1.2"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false

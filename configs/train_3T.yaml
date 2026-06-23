@@ -1,15 +1,15 @@
 run:
-  name: "7T_Unet_Final_max_abs_1.1"
+  name: "3T_36x36_Unet_1.2"
   seed: 42
-  gpu: 1
+  gpu: 3
 
 data:
-  base_dir: "../data/7T/B0corrected_wo_LipidMask"
-  train_subjects: ['Vol3_Brisbane', 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
+  base_dir: "../data/3T"
+  train_subjects: ['Vol01_WB/Res36x36', 'Vol02_BS/Res36x36', 'Vol03_SH/Res36x36', 'Vol04_SM/Res36x36', 'Vol05_LH/Res36x36']
 
-  val_subjects: ['Vol5', 'Vol1_Brisbane', 'Vol1_London']
+  val_subjects: ['Vol01_WB/Res36x36']
 
-  version: "v_1.1_final"
+  version: "v_1.2"
   train_data_filename: "TrainData_{version}.h5"
   normalization: "max_abs" # projection_energy is pauls style, max_abs does not need the lipid projection operator
 
