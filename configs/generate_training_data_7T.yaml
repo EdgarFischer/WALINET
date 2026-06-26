@@ -41,7 +41,7 @@ simulation:
     max_snr: 10
     max_freq_shift: 10 # paul hatte hier 40
     min_peak_width: 10 # paul: 20
-    max_peak_width: 400  # paul: 100
+    max_peak_width: 100  # paul: 100
     max_acqu_delay: 0.002
 
   lipid:
@@ -53,7 +53,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_1.2_final"
+  version: "v_1.1_final"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false
