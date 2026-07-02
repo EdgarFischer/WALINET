@@ -387,10 +387,10 @@ def process_subject(
     p_scalp_mask = subject_dir / "masks" / "lipid_mask.npy"
 
     brainmask = np.load(p_mask)
-    csi_rrrt = np.load(p_cc)
+    csi_rrrt = np.load(p_cc)[..., :n_timepoints]
     skmask = np.load(p_scalp_mask)
 
-    water_rrrt = np.load(subject_dir / "TrainData" / f"IsolatedWater_{version}.npy")
+    water_rrrt = np.load(subject_dir / "TrainData" / f"IsolatedWater_{version}.npy")[..., :n_timepoints]
     image_rrrt = csi_rrrt - water_rrrt
     print("loaded isolated water and reconstructed water-suppressed data")
 

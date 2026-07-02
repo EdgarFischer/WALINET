@@ -2,8 +2,8 @@ run:
   seed: 42
 
 data:
-  base_dir: "../data/7T/B0corrected_wo_LipidMask"
-  subjects: ['Vol5', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
+  base_dir: "../data/7T/NoB0Correction"
+  subjects: ['Vol1_Brisbane', 'Vol3_Brisbane', 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol1_London', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol5', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
 
   paths:
     brain_mask: "masks/brain_mask.npy"
@@ -23,7 +23,7 @@ water_removal:
 
 acquisition:
   bandwidth: 2778
-  n_timepoints: 840
+  n_timepoints: 558
   nmr_freq: 297222931.0
 
 lipid_projection:
@@ -39,7 +39,7 @@ simulation:
     modes_glob: "../MetabModes/7T_TE0/*Exact_Modes.txt"
     min_snr: 1
     max_snr: 10
-    max_freq_shift: 10 # paul hatte hier 40
+    max_freq_shift: 40 # paul hatte hier 40
     min_peak_width: 10 # paul: 20
     max_peak_width: 100  # paul: 100
     max_acqu_delay: 0.002
@@ -53,7 +53,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_1.1_final"
+  version: "v_1.1_558"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false

@@ -108,10 +108,13 @@ def get_isolated_water_path(cfg: TrainingDataConfig, subject: str) -> Path:
     return paths["output_dir"] / filename
 
 
-def load_subject_data(paths: dict):
+def load_subject_data(paths: dict, n_timepoints: int | None = None):
     brain_mask = np.load(paths["brain_mask"])
     csi_rrrt = np.load(paths["data"])
     lipid_mask = np.load(paths["lipid_mask"])
+
+    if n_timepoints is not None:
+        csi_rrrt = csi_rrrt[..., :n_timepoints]
 
     return brain_mask, csi_rrrt, lipid_mask
 
@@ -186,7 +189,7 @@ def compute_isolated_water(
 
     paths = get_subject_paths(cfg, subject)
 
-    brain_mask, csi_rrrt, lipid_mask = load_subject_data(paths)
+    brain_mask, csi_rrrt, lipid_mask = load_subject_data(paths, n_timepoints=cfg.acquisition.n_timepoints)
     head_mask = brain_mask + lipid_mask
 
     image_grid = np.array(csi_rrrt)
@@ -219,7 +222,7 @@ def get_or_create_isolated_water(
 
     if output_path.exists() and not cfg.output.overwrite:
         print(f"[Water] Found existing file, loading: {output_path}")
-        return np.load(output_path)
+        return np.load(output_path)[..., :cfg.acquisition.n_timepoints]
 
     if output_path.exists() and cfg.output.overwrite:
         print(f"[Water] Existing file will be overwritten: {output_path}")

@@ -1,15 +1,15 @@
 run:
-  name: "7T_Unet_1.1_7Layers"
+  name: "7T_Unet_6Layer_558_NoB0Cor"
   seed: 42
-  gpu: 2
+  gpu: 3
 
 data:
-  base_dir: "../data/7T/B0corrected_wo_LipidMask"
+  base_dir: "../data/7T/NoB0Correction"
   train_subjects: ['Vol3_Brisbane', 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
 
   val_subjects: ['Vol5', 'Vol1_Brisbane', 'Vol1_London']
 
-  version: "v_1.1_final"
+  version: "v_1.1_558"
   train_data_filename: "TrainData_{version}.h5"
   normalization: "max_abs" # projection_energy is pauls style, max_abs does not need the lipid projection operator
 
@@ -19,7 +19,7 @@ output:
 
 training:
   enabled: true
-  batch_size: 3500
+  batch_size: 2500
   num_workers: 0
   epochs: 500
   n_batches: -1 # use all training batches
@@ -35,7 +35,7 @@ scheduler:
 
 model:
   architecture: "unet"   # "ynet" or "unet"
-  n_layers: 7
+  n_layers: 6
   n_filters: 8
   in_channels: 2
   out_channels: 2

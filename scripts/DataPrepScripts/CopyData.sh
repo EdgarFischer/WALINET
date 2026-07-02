@@ -1,14 +1,10 @@
 #!/bin/bash
 
-SRC_BASE="/pfad/zur/quellstruktur"
-DST_BASE="/pfad/zur/zielstruktur"
+SRC_BASE="/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/public/kchaknam/Berni_pipeline/output/MS_180"
+DST_BASE="/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/public/hfish/walinet/data/7T/NoB0Correction"
 
 subjects=(
-    "Vol01_WB/Res36x36"
-    "Vol02_BS/Res36x36"
-    "Vol03_SH/Res36x36"
-    "Vol04_SM/Res36x36"
-    "Vol05_LH/Res36x36"
+    "3D-CRT_m64x64x33_0p2_3p88ppm_woL2"    
 )
 
 for subject in "${subjects[@]}"; do
