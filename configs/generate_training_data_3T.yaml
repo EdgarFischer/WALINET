@@ -38,7 +38,7 @@ simulation:
     mean_std_path: "../MetabModes/Metab_Mean_STD.txt"
     modes_glob: "../MetabModes/3T_TE0/*Exact_Modes.txt"
     min_snr: 1
-    max_snr: 20
+    max_snr: 10
     max_freq_shift: 40
     min_peak_width: 10
     max_peak_width: 100
@@ -53,7 +53,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_1.0"
+  version: "v_1.1"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false

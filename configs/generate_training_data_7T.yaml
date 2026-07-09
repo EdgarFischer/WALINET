@@ -3,7 +3,7 @@ run:
 
 data:
   base_dir: "../data/7T/NoB0Correction"
-  subjects: ['Vol1_Brisbane', 'Vol3_Brisbane', 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol1_London', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol5', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
+  subjects: ['MS_200']
 
   paths:
     brain_mask: "masks/brain_mask.npy"
@@ -14,8 +14,8 @@ data:
 water_removal:
   enabled: true
   hsvd_components: 32
-  min_freq: -150
-  max_freq: 150
+  min_freq: -400
+  max_freq: 200
   bandwidth: 2778
   dwell_time: null
   parallel_jobs: 20
@@ -32,7 +32,7 @@ lipid_projection:
   max_iter: 60
 
 simulation:
-  n_spectra: 100000
+  n_spectra: 1
 
   metabolite:
     mean_std_path: "../MetabModes/Metab_Mean_STD.txt"
@@ -53,7 +53,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_1.1_558"
+  version: "v_2.0_558"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false

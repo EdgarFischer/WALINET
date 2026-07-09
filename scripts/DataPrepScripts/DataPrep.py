@@ -5,10 +5,24 @@ sys.path.append(os.path.abspath("../../src"))
 sys.path.append(os.path.abspath(".."))
 from walinet.data.dataprep import * 
 
+
 subjects = [
-    "MS_180"
+    #"Vol01_PW",
+    #"Vol02_BS",
+    #"Vol03_TE",
+    #"Vol04_AA",
+    "Vol05_LH",
 ]
 
-bases = [Path(f"/workspace/walinet/data/7T/NoB0Correction/{s}") for s in subjects]
+Res = [
+    "Res36x36",
+    "Res50x50",
+    "Res64x64x41",
+    #"Res64x64x47"
+]
 
-process_subjects(bases, z=15, t=4)
+for v in subjects:
+
+    bases = [Path(f"/workspace/walinet/data/3T/VIDA_Vienna/{v}/{s}") for s in Res]
+
+    process_subjects(bases, z=15, t=4)
