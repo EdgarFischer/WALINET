@@ -3,7 +3,17 @@ run:
 
 data:
   base_dir: "../data/7T/NoB0Correction"
-  subjects: ['MS_200']
+  subjects: [
+    "MS_180", 
+    "MS_200", 
+    "MS_210", 
+    "MS_230",
+    "MS_260",
+    "MS_280",
+    "MS_320",
+    "MS_340",
+    "MS_400",
+    "MS_430"]
 
   paths:
     brain_mask: "masks/brain_mask.npy"
@@ -53,7 +63,7 @@ simulation:
     scaling_max: 110.0
 
 output:
-  version: "v_2.0_558"
+  version: "v_1.0"
   isolated_water_filename: "IsolatedWater_{version}.npy"
   train_data_filename: "TrainData_{version}.h5"
   overwrite: false

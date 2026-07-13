@@ -32,6 +32,7 @@ events.out.tfevents.*
 *.jl
 *.toml
 *.out
+*.basis
 DataUsedForTraining.txt
 loss.txt
 models/
