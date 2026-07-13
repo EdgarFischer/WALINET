@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .acquisition import PreparedBasis
 
 import math
 from pathlib import Path
@@ -496,6 +497,273 @@ def plot_basis_library_consistency(
 
     figure.tight_layout(
         rect=(0.02, 0.02, 0.97, 0.96)
+    )
+
+    plt.show()
+
+def plot_prepared_basis_grid(
+    prepared_basis: PreparedBasis,
+    *,
+    ppm_limits: tuple[float, float] = (5.5, -0.5),
+    n_columns: int = 4,
+    magnitude: bool = True,
+    normalize_each: bool = False,
+) -> None:
+    """
+    Plot all components of a basis after adaptation to the target
+    acquisition bandwidth and number of time points.
+
+    Parameters
+    ----------
+    prepared_basis:
+        Basis returned by ``prepare_basis_for_acquisition``.
+
+    ppm_limits:
+        Displayed ppm interval. A descending tuple gives the usual
+        MRS orientation.
+
+    n_columns:
+        Number of columns in the subplot grid.
+
+    magnitude:
+        Plot spectral magnitude when True. Otherwise plot the real part.
+
+    normalize_each:
+        Normalize every component independently within the displayed
+        ppm interval. Useful for visual inspection of weak components.
+        Keep False to preserve relative basis scaling.
+    """
+    fids = np.asarray(
+        prepared_basis.fids,
+    )
+
+    if fids.ndim != 2:
+        raise ValueError(
+            "Prepared basis FIDs must have shape "
+            "(n_metabolites, n_timepoints), "
+            f"but found {fids.shape}."
+        )
+
+    expected_shape = (
+        len(prepared_basis.names),
+        prepared_basis.n_timepoints,
+    )
+
+    if fids.shape != expected_shape:
+        raise ValueError(
+            f"Prepared basis has shape {fids.shape}; "
+            f"expected {expected_shape}."
+        )
+
+    if not np.all(np.isfinite(fids)):
+        raise ValueError(
+            "Prepared basis contains non-finite values."
+        )
+
+    bandwidth_from_dwell_time = (
+        1.0 / prepared_basis.dwell_time
+    )
+
+    if not np.isclose(
+        prepared_basis.bandwidth,
+        bandwidth_from_dwell_time,
+        rtol=1e-6,
+        atol=1e-9,
+    ):
+        raise ValueError(
+            "Prepared basis bandwidth and dwell time "
+            "are inconsistent:\n"
+            f"  bandwidth: {prepared_basis.bandwidth}\n"
+            f"  1 / dwell_time: {bandwidth_from_dwell_time}"
+        )
+
+    spectra = np.fft.fftshift(
+        np.fft.fft(
+            fids,
+            axis=-1,
+        ),
+        axes=-1,
+    )
+
+    frequency_hz = np.fft.fftshift(
+        np.fft.fftfreq(
+            prepared_basis.n_timepoints,
+            d=prepared_basis.dwell_time,
+        )
+    )
+
+    ppm_axis = (
+        frequency_hz
+        / prepared_basis.hz_per_ppm
+        + prepared_basis.ppm_reference
+    )
+
+    if magnitude:
+        plot_values = np.abs(
+            spectra
+        )
+        y_label = "Magnitude [a.u.]"
+    else:
+        plot_values = np.real(
+            spectra
+        )
+        y_label = "Real spectrum [a.u.]"
+
+    lower_ppm = min(ppm_limits)
+    upper_ppm = max(ppm_limits)
+
+    displayed_mask = (
+        (ppm_axis >= lower_ppm)
+        & (ppm_axis <= upper_ppm)
+    )
+
+    if not np.any(displayed_mask):
+        raise ValueError(
+            "The selected ppm interval does not overlap "
+            "with the prepared basis frequency range."
+        )
+
+    if normalize_each:
+        normalization = np.max(
+            np.abs(
+                plot_values[
+                    :,
+                    displayed_mask,
+                ]
+            ),
+            axis=-1,
+            keepdims=True,
+        )
+
+        normalization[
+            normalization == 0
+        ] = 1.0
+
+        plot_values = (
+            plot_values / normalization
+        )
+
+        y_label = (
+            "Individually normalized "
+            + y_label
+        )
+
+    n_metabolites = len(
+        prepared_basis.names
+    )
+
+    n_rows = math.ceil(
+        n_metabolites / n_columns
+    )
+
+    figure, axes = plt.subplots(
+        n_rows,
+        n_columns,
+        figsize=(
+            4.2 * n_columns,
+            3.0 * n_rows,
+        ),
+        sharex=True,
+    )
+
+    axes = np.atleast_1d(
+        axes
+    ).ravel()
+
+    for index, name in enumerate(
+        prepared_basis.names
+    ):
+        axis = axes[index]
+
+        axis.plot(
+            ppm_axis,
+            plot_values[index],
+        )
+
+        axis.set_title(name)
+
+        axis.set_xlim(
+            *ppm_limits
+        )
+
+        axis.grid(
+            alpha=0.3
+        )
+
+    for axis in axes[n_metabolites:]:
+        axis.axis("off")
+
+    frequency_resolution = (
+        prepared_basis.bandwidth
+        / prepared_basis.n_timepoints
+    )
+
+    acquisition_duration = (
+        prepared_basis.n_timepoints
+        * prepared_basis.dwell_time
+    )
+
+    figure.supxlabel(
+        "Chemical shift [ppm]"
+    )
+
+    figure.supylabel(
+        y_label
+    )
+
+    figure.suptitle(
+        "LCModel basis prepared for acquisition\n"
+        f"{prepared_basis.n_timepoints} points, "
+        f"{prepared_basis.bandwidth:.3f} Hz bandwidth, "
+        f"{frequency_resolution:.3f} Hz/bin",
+        fontsize=15,
+    )
+
+    figure.tight_layout(
+        rect=(0.02, 0.02, 0.98, 0.94)
+    )
+
+    print("Prepared-basis consistency check")
+    print(
+        f"  Shape                : "
+        f"{prepared_basis.fids.shape}"
+    )
+    print(
+        f"  Dtype                : "
+        f"{prepared_basis.fids.dtype}"
+    )
+    print(
+        f"  Finite values        : "
+        f"{np.all(np.isfinite(fids))}"
+    )
+    print(
+        f"  C contiguous         : "
+        f"{prepared_basis.fids.flags.c_contiguous}"
+    )
+    print(
+        f"  Requested bandwidth  : "
+        f"{prepared_basis.requested_bandwidth:.6f} Hz"
+    )
+    print(
+        f"  Actual bandwidth     : "
+        f"{prepared_basis.bandwidth:.6f} Hz"
+    )
+    print(
+        f"  Dwell time           : "
+        f"{prepared_basis.dwell_time:.9e} s"
+    )
+    print(
+        f"  Acquisition duration : "
+        f"{acquisition_duration:.6f} s"
+    )
+    print(
+        f"  Frequency resolution : "
+        f"{frequency_resolution:.6f} Hz"
+    )
+    print(
+        f"  ppm range            : "
+        f"{ppm_axis.min():.3f} to "
+        f"{ppm_axis.max():.3f}"
     )
 
     plt.show()
