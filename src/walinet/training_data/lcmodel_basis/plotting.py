@@ -593,9 +593,9 @@ def plot_prepared_basis_grid(
     )
 
     ppm_axis = (
-        frequency_hz
+        prepared_basis.ppm_reference
+        - frequency_hz
         / prepared_basis.hz_per_ppm
-        + prepared_basis.ppm_reference
     )
 
     if magnitude:

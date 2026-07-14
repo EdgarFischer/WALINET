@@ -18,33 +18,38 @@ class SimulationPool:
     """
     In-memory simulation resources for one data split.
 
-    Water and lipid FIDs are stored as flat, contiguous pools.
-    Subject boundaries are preserved through offset tensors.
+    The HDF5 resource files store water and lipid signals as FIDs.
+    During loading, the FIDs are prepared to the target acquisition
+    length and transformed once into fft-shifted spectra.
 
-    Shapes:
-        water_fids:
-            (N_water_total, T)
+    The simulator therefore receives frequency-domain resources and
+    does not need to transform water or lipid signals for every batch.
 
-        lipid_fids:
-            (N_lipid_total, T)
+    Shapes
+    ------
+    water_spectra:
+        (N_water_total, T)
 
-        water_offsets:
-            (n_subjects + 1,)
+    lipid_spectra:
+        (N_lipid_total, T)
 
-        lipid_offsets:
-            (n_subjects + 1,)
+    water_offsets:
+        (n_subjects + 1,)
 
-        native_lengths:
-            (n_subjects,)
+    lipid_offsets:
+        (n_subjects + 1,)
 
-        lipid_projection_operators:
-            (n_subjects, T, T), or None
+    native_lengths:
+        (n_subjects,)
+
+    lipid_projection_operators:
+        (n_subjects, T, T), or None
     """
 
     subject_names: tuple[str, ...]
 
-    water_fids: torch.Tensor
-    lipid_fids: torch.Tensor
+    water_spectra: torch.Tensor
+    lipid_spectra: torch.Tensor
 
     water_offsets: torch.Tensor
     lipid_offsets: torch.Tensor
@@ -61,17 +66,21 @@ class SimulationPool:
         return len(self.subject_names)
 
     @property
-    def n_water_fids(self) -> int:
-        return int(self.water_fids.shape[0])
+    def n_water_spectra(self) -> int:
+        return int(
+            self.water_spectra.shape[0]
+        )
 
     @property
-    def n_lipid_fids(self) -> int:
-        return int(self.lipid_fids.shape[0])
+    def n_lipid_spectra(self) -> int:
+        return int(
+            self.lipid_spectra.shape[0]
+        )
 
     @property
     def water_counts(self) -> torch.Tensor:
         """
-        Number of valid water FIDs for every subject.
+        Number of valid water spectra for every subject.
         """
         return (
             self.water_offsets[1:]
@@ -81,7 +90,7 @@ class SimulationPool:
     @property
     def lipid_counts(self) -> torch.Tensor:
         """
-        Number of valid lipid FIDs for every subject.
+        Number of valid lipid spectra for every subject.
         """
         return (
             self.lipid_offsets[1:]
@@ -90,16 +99,16 @@ class SimulationPool:
 
     @property
     def device(self) -> torch.device:
-        return self.water_fids.device
+        return self.water_spectra.device
 
     def water_for_subject(
         self,
         subject_index: int,
     ) -> torch.Tensor:
         """
-        Return all water FIDs belonging to one subject.
+        Return all water spectra belonging to one subject.
 
-        This method is mainly intended for debugging and notebooks.
+        Intended mainly for debugging and notebooks.
         """
         self._validate_subject_index(
             subject_index
@@ -117,7 +126,7 @@ class SimulationPool:
             ].item()
         )
 
-        return self.water_fids[
+        return self.water_spectra[
             start:end
         ]
 
@@ -126,9 +135,9 @@ class SimulationPool:
         subject_index: int,
     ) -> torch.Tensor:
         """
-        Return all lipid FIDs belonging to one subject.
+        Return all lipid spectra belonging to one subject.
 
-        This method is mainly intended for debugging and notebooks.
+        Intended mainly for debugging and notebooks.
         """
         self._validate_subject_index(
             subject_index
@@ -146,7 +155,7 @@ class SimulationPool:
             ].item()
         )
 
-        return self.lipid_fids[
+        return self.lipid_spectra[
             start:end
         ]
 
@@ -171,8 +180,8 @@ class SimulationPool:
         """
         Move all tensors of the pool to one device.
 
-        The loader initially creates CPU tensors. This method can
-        later be used to move the complete pool to the GPU once.
+        The loader initially creates CPU tensors. The complete pool
+        can subsequently be moved to a GPU once.
         """
         target_device = torch.device(
             device
@@ -189,25 +198,35 @@ class SimulationPool:
 
         return SimulationPool(
             subject_names=self.subject_names,
-            water_fids=self.water_fids.to(
-                target_device,
-                non_blocking=non_blocking,
+            water_spectra=(
+                self.water_spectra.to(
+                    target_device,
+                    non_blocking=non_blocking,
+                )
             ),
-            lipid_fids=self.lipid_fids.to(
-                target_device,
-                non_blocking=non_blocking,
+            lipid_spectra=(
+                self.lipid_spectra.to(
+                    target_device,
+                    non_blocking=non_blocking,
+                )
             ),
-            water_offsets=self.water_offsets.to(
-                target_device,
-                non_blocking=non_blocking,
+            water_offsets=(
+                self.water_offsets.to(
+                    target_device,
+                    non_blocking=non_blocking,
+                )
             ),
-            lipid_offsets=self.lipid_offsets.to(
-                target_device,
-                non_blocking=non_blocking,
+            lipid_offsets=(
+                self.lipid_offsets.to(
+                    target_device,
+                    non_blocking=non_blocking,
+                )
             ),
-            native_lengths=self.native_lengths.to(
-                target_device,
-                non_blocking=non_blocking,
+            native_lengths=(
+                self.native_lengths.to(
+                    target_device,
+                    non_blocking=non_blocking,
+                )
             ),
             lipid_projection_operators=(
                 projection_operators
@@ -265,13 +284,16 @@ class SimulationResources:
 @dataclass(frozen=True)
 class _LoadedSubjectResources:
     """
-    Internal representation of one loaded subject.
+    Internal frequency-domain representation of one subject.
+
+    The data are read from the HDF5 file as FIDs but converted into
+    spectra before this object is returned.
     """
 
     subject: str
 
-    water_fids: np.ndarray
-    lipid_fids: np.ndarray
+    water_spectra: np.ndarray
+    lipid_spectra: np.ndarray
 
     native_n_timepoints: int
     bandwidth_hz: float
@@ -332,19 +354,19 @@ def _prepare_fid_pool(
     """
     Crop or zero-fill a two-dimensional FID pool.
 
-    Shape:
-        input:
-            (N, T_native)
+    Shape
+    -----
+    input:
+        (N, T_native)
 
-        output:
-            (N, T_target)
+    output:
+        (N, T_target)
 
     Cropping:
-        The first target_n_timepoints acquired FID samples are kept.
+        Keep the first target_n_timepoints acquired FID samples.
 
     Zero-filling:
-        Native samples are copied to the beginning and zeros are
-        appended.
+        Copy native samples to the beginning and append zeros.
     """
     if fids.ndim != 2:
         raise ValueError(
@@ -361,7 +383,10 @@ def _prepare_fid_pool(
         fids.shape[-1]
     )
 
-    if native_n_timepoints == target_n_timepoints:
+    if (
+        native_n_timepoints
+        == target_n_timepoints
+    ):
         return np.ascontiguousarray(
             fids,
             dtype=np.complex64,
@@ -387,6 +412,61 @@ def _prepare_fid_pool(
 
     return np.ascontiguousarray(
         prepared,
+        dtype=np.complex64,
+    )
+
+
+def _fids_to_spectra(
+    fids: np.ndarray,
+) -> np.ndarray:
+    """
+    Convert a prepared FID pool into fft-shifted spectra.
+
+    The FFT convention is identical to the convention used throughout
+    the simulator:
+
+        spectrum = fftshift(fft(fid))
+
+    Parameters
+    ----------
+    fids:
+        Complex array with shape (N, T).
+
+    Returns
+    -------
+    np.ndarray:
+        Contiguous complex64 array with shape (N, T).
+    """
+    if fids.ndim != 2:
+        raise ValueError(
+            "FID pool must have shape (N, T), "
+            f"but found {fids.shape}."
+        )
+
+    if not np.iscomplexobj(
+        fids
+    ):
+        raise TypeError(
+            "FID pool must be complex-valued."
+        )
+
+    spectra = np.fft.fftshift(
+        np.fft.fft(
+            fids,
+            axis=-1,
+        ),
+        axes=-1,
+    )
+
+    if not np.isfinite(
+        spectra
+    ).all():
+        raise ValueError(
+            "Generated spectra contain NaN or Inf."
+        )
+
+    return np.ascontiguousarray(
+        spectra,
         dtype=np.complex64,
     )
 
@@ -464,8 +544,7 @@ def _load_projection_operator(
     n_timepoints: int,
 ) -> np.ndarray:
     """
-    Load the subject-specific projection operator for the requested
-    spectrum length.
+    Load the subject-specific frequency-domain projection operator.
     """
     group_name = "lipid_projection"
 
@@ -565,6 +644,9 @@ def _load_subject_resources(
 ) -> _LoadedSubjectResources:
     """
     Load and validate one subject-specific resource file.
+
+    The HDF5 file contains FIDs. They are cropped or zero-filled and
+    then converted once into fft-shifted spectra before returning.
     """
     if not resource_path.is_file():
         raise FileNotFoundError(
@@ -782,6 +864,16 @@ def _load_subject_resources(
             ),
         )
 
+        # Transform once during loading. From this point onward,
+        # the simulator works directly in the frequency domain.
+        water_spectra = _fids_to_spectra(
+            water_fids
+        )
+
+        lipid_spectra = _fids_to_spectra(
+            lipid_fids
+        )
+
         projection_operator = None
 
         if load_projection_operator:
@@ -797,10 +889,10 @@ def _load_subject_resources(
             )
 
     print(
-        f"  water FIDs: {water_fids.shape}"
+        f"  water spectra: {water_spectra.shape}"
     )
     print(
-        f"  lipid FIDs: {lipid_fids.shape}"
+        f"  lipid spectra: {lipid_spectra.shape}"
     )
     print(
         f"  native length: {native_n_timepoints}"
@@ -817,8 +909,8 @@ def _load_subject_resources(
 
     return _LoadedSubjectResources(
         subject=subject,
-        water_fids=water_fids,
-        lipid_fids=lipid_fids,
+        water_spectra=water_spectra,
+        lipid_spectra=lipid_spectra,
         native_n_timepoints=(
             native_n_timepoints
         ),
@@ -854,6 +946,9 @@ def load_simulation_pool(
 ) -> SimulationPool:
     """
     Load and concatenate subject-specific resources for one split.
+
+    The HDF5 files contain FIDs, but the resulting SimulationPool
+    contains only frequency-domain spectra.
 
     The resulting tensors are initially stored on the CPU.
     """
@@ -938,21 +1033,21 @@ def load_simulation_pool(
 
     for loaded in loaded_subjects:
         water_arrays.append(
-            loaded.water_fids
+            loaded.water_spectra
         )
 
         lipid_arrays.append(
-            loaded.lipid_fids
+            loaded.lipid_spectra
         )
 
         water_offsets.append(
             water_offsets[-1]
-            + loaded.water_fids.shape[0]
+            + loaded.water_spectra.shape[0]
         )
 
         lipid_offsets.append(
             lipid_offsets[-1]
-            + loaded.lipid_fids.shape[0]
+            + loaded.lipid_spectra.shape[0]
         )
 
         native_lengths.append(
@@ -1026,10 +1121,10 @@ def load_simulation_pool(
         subject_names=tuple(
             subjects
         ),
-        water_fids=torch.from_numpy(
+        water_spectra=torch.from_numpy(
             water_array
         ),
-        lipid_fids=torch.from_numpy(
+        lipid_spectra=torch.from_numpy(
             lipid_array
         ),
         water_offsets=torch.from_numpy(
@@ -1053,21 +1148,25 @@ def load_simulation_pool(
     )
 
     print()
-    print("[Resources] Pool created:")
+    print("[Resources] Frequency-domain pool created:")
     print(
         f"  subjects: {pool.n_subjects}"
     )
     print(
-        f"  water_fids: {tuple(pool.water_fids.shape)}"
+        "  water_spectra: "
+        f"{tuple(pool.water_spectra.shape)}"
     )
     print(
-        f"  lipid_fids: {tuple(pool.lipid_fids.shape)}"
+        "  lipid_spectra: "
+        f"{tuple(pool.lipid_spectra.shape)}"
     )
     print(
-        f"  water_offsets: {tuple(pool.water_offsets.shape)}"
+        "  water_offsets: "
+        f"{tuple(pool.water_offsets.shape)}"
     )
     print(
-        f"  lipid_offsets: {tuple(pool.lipid_offsets.shape)}"
+        "  lipid_offsets: "
+        f"{tuple(pool.lipid_offsets.shape)}"
     )
 
     if (
@@ -1094,6 +1193,9 @@ def build_simulation_resources(
     """
     Build train and validation simulation pools from the complete
     training and simulation configurations.
+
+    The HDF5 resources are stored as FIDs. During loading they are
+    transformed once, so the returned pools contain spectra.
 
     The returned tensors are initially stored on the CPU.
     """
@@ -1205,7 +1307,7 @@ def build_simulation_resources(
         f"{resources.validation.n_subjects}"
     )
     print(
-        "Target timepoints: "
+        "Target spectral points: "
         f"{target_n_timepoints}"
     )
     print(

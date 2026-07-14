@@ -574,15 +574,19 @@ def prepare_basis_for_acquisition(
     )
 
     prepared_fids = resampled_fids[
-        ...,
-        :target_n_timepoints,
+    ...,
+    :target_n_timepoints,
     ]
 
-    prepared_fids = (
-        np.ascontiguousarray(
-            prepared_fids,
-            dtype=output_dtype,
-        )
+    # Match the frequency orientation of the in-vivo and
+    # measured water/lipid FIDs used by WALINET.
+    prepared_fids = np.conj(
+        prepared_fids
+    )
+
+    prepared_fids = np.ascontiguousarray(
+        prepared_fids,
+        dtype=output_dtype,
     )
 
     actual_dwell_time = (

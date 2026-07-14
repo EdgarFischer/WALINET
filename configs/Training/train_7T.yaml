@@ -8,9 +8,9 @@ data:
 
   base_dir: "../../data/7T/NoB0Correction"
 
-  train_subjects: ['Vol3_Brisbane', 'Vol3_Brisbane']
+  train_subjects: ['Vol3_Brisbane', 'Vol4_Brisbane']
 
-  val_subjects: ['Vol1_Brisbane', 'Vol3_Brisbane']
+  val_subjects: ['Vol1_Brisbane']
 
   normalization: "max_abs"
 
