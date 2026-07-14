@@ -22,3 +22,10 @@ water_extraction:
 resources:
   simulation_resources_filename: "SimulationResources_{version}.h5"
   overwrite: false
+
+lipid_projection:
+  enabled: true
+  n_timepoints: [558, 840]
+  target: 0.938
+  tol: 0.005
+  max_iter: 60

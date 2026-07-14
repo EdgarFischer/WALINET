@@ -44,8 +44,18 @@ class WaterLipidResourcesCfg:
 
 
 @dataclass(frozen=True)
+class LipidProjectionCfg:
+    enabled: bool
+    n_timepoints: list[int]
+    target: float
+    tol: float
+    max_iter: int
+
+
+@dataclass(frozen=True)
 class WaterLipidExtractionConfig:
     version: str
     data: WaterLipidDataCfg
     water_extraction: WaterExtractionCfg
     resources: WaterLipidResourcesCfg
+    lipid_projection: LipidProjectionCfg

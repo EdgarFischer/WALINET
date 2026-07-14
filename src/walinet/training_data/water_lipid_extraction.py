@@ -11,13 +11,16 @@ import numpy as np
 from walinet.config.schema_water_lipid import (
     WaterLipidExtractionConfig,
 )
+from walinet.training_data.lipid_removal import (
+    compute_lipid_projection_operator,
+)
 from walinet.training_data.water_removal import (
     suppress_water_volume,
 )
 
 
 RESOURCE_FORMAT = "walinet_water_lipid_resources"
-RESOURCE_FORMAT_VERSION = "3.0"
+RESOURCE_FORMAT_VERSION = "4.0"
 
 
 def _utc_now() -> str:
@@ -241,11 +244,11 @@ def compute_isolated_water(
 
         brain_mask | lipid_mask
 
-    Water in the lipid mask is required temporarily so that it can
+    Water in the lipid mask is temporarily required so that it can
     be subtracted from the original lipid-mask FIDs.
 
-    The returned array has shape (X, Y, Z, T), but it is not saved
-    directly. It exists only in memory during preprocessing.
+    The complete isolated-water volume exists only in memory. It is
+    not saved as a separate file.
     """
     print(
         f"[Water] Computing isolated water for {subject}..."
@@ -267,8 +270,6 @@ def compute_isolated_water(
         expected_shape=csi_fids.shape,
     )
 
-    # Keep the complete spatial shape, but force everything
-    # outside brain_mask | lipid_mask to zero.
     isolated_water = np.where(
         head_mask[..., None],
         isolated_water,
@@ -288,7 +289,7 @@ def compute_isolated_water(
     print(f"  Dtype: {isolated_water.dtype}")
     print("  Domain: FID")
     print("  Temporary mask: brain_mask | lipid_mask")
-    print("  The temporary full water volume is not saved.")
+    print("  The full temporary water volume is not saved.")
 
     return isolated_water
 
@@ -341,12 +342,9 @@ def extract_simulation_resources(
             f"  data:       {spatial_shape}"
         )
 
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
     # Water resource
-    # -----------------------------------------------------------------
-    # Preserve the complete spatial volume, but retain water only
-    # inside the brain mask. Water from the lipid mask is no longer
-    # needed after the lipid pool has been calculated.
+    # ---------------------------------------------------------
     water_fids = np.zeros(
         csi_fids.shape,
         dtype=np.complex64,
@@ -404,11 +402,9 @@ def extract_simulation_resources(
             "stored as zero FIDs."
         )
 
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
     # Lipid resource
-    # -----------------------------------------------------------------
-    # Water was also extracted in the lipid mask specifically so that
-    # it can now be removed from the original lipid-mask signal.
+    # ---------------------------------------------------------
     lipid_fids = (
         np.asarray(
             csi_fids[lipid_mask],
@@ -457,6 +453,237 @@ def extract_simulation_resources(
     )
 
 
+def _prepare_fids_for_length(
+    fids: np.ndarray,
+    *,
+    n_timepoints: int,
+) -> np.ndarray:
+    """
+    Crop or zero-fill FIDs to a requested length.
+
+    Examples:
+        Native 840 -> requested 558:
+            Keep the first 558 acquired FID points.
+
+        Native 558 -> requested 840:
+            Keep all 558 acquired points and append zeros.
+    """
+    if n_timepoints <= 0:
+        raise ValueError(
+            "n_timepoints must be > 0."
+        )
+
+    if fids.ndim != 2:
+        raise ValueError(
+            "fids must have shape (N, T), but found "
+            f"{fids.shape}."
+        )
+
+    prepared = np.zeros(
+        (
+            fids.shape[0],
+            n_timepoints,
+        ),
+        dtype=np.complex64,
+    )
+
+    n_copy = min(
+        fids.shape[-1],
+        n_timepoints,
+    )
+
+    prepared[:, :n_copy] = np.asarray(
+        fids[:, :n_copy],
+        dtype=np.complex64,
+    )
+
+    return np.ascontiguousarray(
+        prepared,
+        dtype=np.complex64,
+    )
+
+
+def compute_lipid_projection_operators(
+    *,
+    csi_fids: np.ndarray,
+    lipid_mask: np.ndarray,
+    cfg: WaterLipidExtractionConfig,
+) -> dict[int, np.ndarray]:
+    """
+    Compute optional subject-specific lipid-projection operators.
+
+    The operators are computed from the original, non-water-
+    suppressed FIDs inside the lipid mask. This matches the
+    original WALINET preprocessing logic.
+
+    Only lipid-mask voxels are copied into the temporary array.
+    This avoids performing the FFT on the complete spatial volume.
+    """
+    if not cfg.lipid_projection.enabled:
+        print(
+            "[Lipid projection] Disabled."
+        )
+        return {}
+
+    original_lipid_fids = np.asarray(
+        csi_fids[lipid_mask],
+        dtype=np.complex64,
+    )
+
+    if original_lipid_fids.ndim != 2:
+        raise ValueError(
+            "Original lipid FIDs must have shape (N, T), "
+            f"but found {original_lipid_fids.shape}."
+        )
+
+    if original_lipid_fids.shape[0] == 0:
+        raise ValueError(
+            "No original lipid-mask FIDs are available "
+            "for projection-operator calculation."
+        )
+
+    if not np.all(
+        np.isfinite(original_lipid_fids)
+    ):
+        raise ValueError(
+            "Original lipid-mask FIDs contain NaN or Inf."
+        )
+
+    operators: dict[int, np.ndarray] = {}
+
+    for n_timepoints in (
+        cfg.lipid_projection.n_timepoints
+    ):
+        print()
+        print(
+            "[Lipid projection] Computing operator "
+            f"for {n_timepoints} timepoints..."
+        )
+
+        prepared_fids = _prepare_fids_for_length(
+            original_lipid_fids,
+            n_timepoints=n_timepoints,
+        )
+
+        lipid_spectra = np.fft.fftshift(
+            np.fft.fft(
+                prepared_fids,
+                axis=-1,
+            ),
+            axes=-1,
+        ).astype(
+            np.complex64,
+            copy=False,
+        )
+
+        # compute_lipid_projection_operator expects a spatial
+        # spectrum volume and a corresponding 3D mask. Represent
+        # the compact lipid pool as (N, 1, 1, T).
+        spectra_for_operator = lipid_spectra[
+            :,
+            None,
+            None,
+            :,
+        ]
+
+        operator_mask = np.ones(
+            spectra_for_operator.shape[:-1],
+            dtype=bool,
+        )
+
+        operator = compute_lipid_projection_operator(
+            spectra=spectra_for_operator,
+            lipid_mask=operator_mask,
+            target=cfg.lipid_projection.target,
+            tol=cfg.lipid_projection.tol,
+            max_n_iter=cfg.lipid_projection.max_iter,
+        )
+
+        operator = np.ascontiguousarray(
+            operator,
+            dtype=np.complex64,
+        )
+
+        expected_shape = (
+            n_timepoints,
+            n_timepoints,
+        )
+
+        if operator.shape != expected_shape:
+            raise ValueError(
+                "Unexpected lipid-projection operator shape:\n"
+                f"  expected: {expected_shape}\n"
+                f"  found:    {operator.shape}"
+            )
+
+        if not np.all(np.isfinite(operator)):
+            raise ValueError(
+                "Lipid-projection operator for "
+                f"{n_timepoints} points contains NaN or Inf."
+            )
+
+        operators[n_timepoints] = operator
+
+        print(
+            "[Lipid projection] Finished:"
+        )
+        print(
+            f"  operator_{n_timepoints}: "
+            f"{operator.shape}, {operator.dtype}"
+        )
+
+    return operators
+
+
+def _existing_resource_is_complete(
+    *,
+    path: Path,
+    cfg: WaterLipidExtractionConfig,
+) -> bool:
+    """
+    Check whether an existing resource file contains everything
+    requested by the current configuration.
+    """
+    try:
+        with h5py.File(
+            path,
+            "r",
+        ) as h5:
+            required_datasets = {
+                "water_fids",
+                "lipid_fids",
+                "brain_mask",
+            }
+
+            if not required_datasets.issubset(
+                h5.keys()
+            ):
+                return False
+
+            if cfg.lipid_projection.enabled:
+                if "lipid_projection" not in h5:
+                    return False
+
+                projection_group = h5[
+                    "lipid_projection"
+                ]
+
+                for n_timepoints in (
+                    cfg.lipid_projection.n_timepoints
+                ):
+                    dataset_name = (
+                        f"operator_{n_timepoints}"
+                    )
+
+                    if dataset_name not in projection_group:
+                        return False
+
+            return True
+
+    except OSError:
+        return False
+
+
 def save_simulation_resources(
     *,
     path: Path,
@@ -467,6 +694,7 @@ def save_simulation_resources(
     lipid_fids: np.ndarray,
     brain_mask: np.ndarray,
     lipid_mask: np.ndarray,
+    lipid_projection_operators: dict[int, np.ndarray],
 ) -> None:
     """
     Save all final preprocessing results in one HDF5 file.
@@ -485,7 +713,10 @@ def save_simulation_resources(
 
         brain_mask:
             Shape (X, Y, Z).
-            Stored so the spatial water resource is self-contained.
+
+        lipid_projection/operator_<N>:
+            Optional subject-specific frequency-domain
+            projection operators with shape (N, N).
     """
     if water_fids.ndim != 4:
         raise ValueError(
@@ -540,6 +771,46 @@ def save_simulation_resources(
             "Water FIDs outside the brain mask must be zero."
         )
 
+    expected_operator_lengths = (
+        set(cfg.lipid_projection.n_timepoints)
+        if cfg.lipid_projection.enabled
+        else set()
+    )
+
+    actual_operator_lengths = set(
+        lipid_projection_operators.keys()
+    )
+
+    if (
+        actual_operator_lengths
+        != expected_operator_lengths
+    ):
+        raise ValueError(
+            "Lipid-projection operators do not match "
+            "the configured lengths:\n"
+            f"  expected: {sorted(expected_operator_lengths)}\n"
+            f"  found:    {sorted(actual_operator_lengths)}"
+        )
+
+    for n_timepoints, operator in (
+        lipid_projection_operators.items()
+    ):
+        expected_shape = (
+            n_timepoints,
+            n_timepoints,
+        )
+
+        if operator.shape != expected_shape:
+            raise ValueError(
+                f"operator_{n_timepoints} has shape "
+                f"{operator.shape}, expected {expected_shape}."
+            )
+
+        if not np.all(np.isfinite(operator)):
+            raise ValueError(
+                f"operator_{n_timepoints} contains NaN or Inf."
+            )
+
     path.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -558,11 +829,15 @@ def save_simulation_resources(
             "w",
         ) as h5:
             h5.attrs["format"] = RESOURCE_FORMAT
-            h5.attrs["format_version"] = RESOURCE_FORMAT_VERSION
+            h5.attrs["format_version"] = (
+                RESOURCE_FORMAT_VERSION
+            )
             h5.attrs["created_utc"] = _utc_now()
 
             h5.attrs["subject"] = subject
-            h5.attrs["preprocessing_version"] = cfg.version
+            h5.attrs["preprocessing_version"] = (
+                cfg.version
+            )
 
             h5.attrs["bandwidth_hz"] = float(
                 cfg.water_extraction.bandwidth
@@ -578,7 +853,9 @@ def save_simulation_resources(
             h5.attrs["fft_shifted"] = False
             h5.attrs["dtype"] = "complex64"
 
-            h5.attrs["water_layout"] = "spatial_volume"
+            h5.attrs["water_layout"] = (
+                "spatial_volume"
+            )
             h5.attrs["water_mask"] = "brain_mask"
             h5.attrs["water_outside_mask_zero"] = True
 
@@ -588,7 +865,9 @@ def save_simulation_resources(
             h5.attrs["water_extraction_mask"] = (
                 "brain_mask | lipid_mask"
             )
-            h5.attrs["temporary_isolated_water_saved"] = False
+            h5.attrs[
+                "temporary_isolated_water_saved"
+            ] = False
 
             h5.attrs["spatial_shape"] = np.asarray(
                 water_fids.shape[:-1],
@@ -655,8 +934,57 @@ def save_simulation_resources(
                 shuffle=True,
             )
 
-        # Replace the final file only after the temporary HDF5 file
-        # has been written and closed successfully.
+            projection_group = h5.create_group(
+                "lipid_projection"
+            )
+
+            projection_group.attrs["enabled"] = bool(
+                cfg.lipid_projection.enabled
+            )
+            projection_group.attrs["target"] = float(
+                cfg.lipid_projection.target
+            )
+            projection_group.attrs["tol"] = float(
+                cfg.lipid_projection.tol
+            )
+            projection_group.attrs["max_iter"] = int(
+                cfg.lipid_projection.max_iter
+            )
+            projection_group.attrs["domain"] = (
+                "frequency"
+            )
+            projection_group.attrs["fft_shifted"] = True
+            projection_group.attrs["source"] = (
+                "original_csi_fids_in_lipid_mask"
+            )
+            projection_group.attrs[
+                "configured_n_timepoints"
+            ] = np.asarray(
+                cfg.lipid_projection.n_timepoints,
+                dtype=np.int64,
+            )
+
+            for n_timepoints in sorted(
+                lipid_projection_operators
+            ):
+                operator = (
+                    lipid_projection_operators[
+                        n_timepoints
+                    ]
+                )
+
+                projection_group.create_dataset(
+                    f"operator_{n_timepoints}",
+                    data=np.asarray(
+                        operator,
+                        dtype=np.complex64,
+                    ),
+                    compression="lzf",
+                    shuffle=True,
+                )
+
+        # Replace the final file only after the temporary file was
+        # written and closed successfully.
         temporary_path.replace(
             path
         )
@@ -667,12 +995,27 @@ def save_simulation_resources(
 
         raise
 
+    print()
     print("[Resources] Saved:")
     print(f"  {path}")
     print(f"  water_fids: {water_fids.shape}")
     print(f"  lipid_fids: {lipid_fids.shape}")
     print(f"  brain_mask: {brain_mask.shape}")
-    print("  Domain: FID")
+
+    if lipid_projection_operators:
+        for n_timepoints in sorted(
+            lipid_projection_operators
+        ):
+            print(
+                "  lipid_projection/"
+                f"operator_{n_timepoints}: "
+                f"{lipid_projection_operators[n_timepoints].shape}"
+            )
+    else:
+        print("  lipid_projection: disabled")
+
+    print("  FID resources domain: FID")
+    print("  Projection operator domain: frequency")
     print("  No separate isolated-water file was created.")
 
 
@@ -702,12 +1045,26 @@ def process_subject(
         resource_path.is_file()
         and not cfg.resources.overwrite
     ):
-        print(
-            "[Skip] Simulation resources already exist:"
-        )
-        print(f"  {resource_path}")
+        if _existing_resource_is_complete(
+            path=resource_path,
+            cfg=cfg,
+        ):
+            print(
+                "[Skip] Complete simulation resources "
+                "already exist:"
+            )
+            print(f"  {resource_path}")
 
-        return resource_path
+            return resource_path
+
+        raise FileExistsError(
+            "An existing simulation-resource file was found, "
+            "but it does not contain all resources requested by "
+            "the current configuration:\n"
+            f"  {resource_path}\n\n"
+            "Set resources.overwrite to true or use a new "
+            "preprocessing version."
+        )
 
     if (
         resource_path.exists()
@@ -739,8 +1096,6 @@ def process_subject(
         f"Lipid-mask voxels: {int(lipid_mask.sum())}"
     )
 
-    # The complete isolated-water volume exists only temporarily
-    # during this subject's preprocessing.
     isolated_water = compute_isolated_water(
         subject=subject,
         cfg=cfg,
@@ -759,7 +1114,7 @@ def process_subject(
         lipid_mask=lipid_mask,
     )
 
-    # Free the large temporary water array before writing HDF5.
+    # The complete isolated-water volume is no longer needed.
     del isolated_water
 
     print(
@@ -767,6 +1122,14 @@ def process_subject(
     )
     print(
         f"Lipid FIDs: {lipid_fids.shape}"
+    )
+
+    lipid_projection_operators = (
+        compute_lipid_projection_operators(
+            csi_fids=csi_fids,
+            lipid_mask=lipid_mask,
+            cfg=cfg,
+        )
     )
 
     save_simulation_resources(
@@ -778,6 +1141,9 @@ def process_subject(
         lipid_fids=lipid_fids,
         brain_mask=brain_mask,
         lipid_mask=lipid_mask,
+        lipid_projection_operators=(
+            lipid_projection_operators
+        ),
     )
 
     return resource_path
