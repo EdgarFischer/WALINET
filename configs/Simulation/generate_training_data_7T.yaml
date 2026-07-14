@@ -1,0 +1,69 @@
+run:
+  seed: 42
+
+data:
+  base_dir: "../data/7T/NoB0Correction"
+  subjects: [
+    "MS_180", 
+    "MS_200", 
+    "MS_210", 
+    "MS_230",
+    "MS_260",
+    "MS_280",
+    "MS_320",
+    "MS_340",
+    "MS_400",
+    "MS_430"]
+
+  paths:
+    brain_mask: "masks/brain_mask.npy"
+    lipid_mask: "masks/lipid_mask.npy"
+    input_data: "OriginalData/data.npy"
+    output_dir: "TrainData"
+
+water_removal:
+  enabled: true
+  hsvd_components: 32
+  min_freq: -400
+  max_freq: 200
+  bandwidth: 2778
+  dwell_time: null
+  parallel_jobs: 20
+  slice_batch_size: 3
+
+acquisition:
+  bandwidth: 2778
+  n_timepoints: 558
+  nmr_freq: 297222931.0
+
+lipid_projection:
+  target: 0.938
+  tol: 5e-3
+  max_iter: 60
+
+simulation:
+  n_spectra: 1
+
+  metabolite:
+    mean_std_path: "../MetabModes/Metab_Mean_STD.txt"
+    modes_glob: "../MetabModes/7T_TE0/*Exact_Modes.txt"
+    min_snr: 1
+    max_snr: 10
+    max_freq_shift: 40 # paul hatte hier 40
+    min_peak_width: 10 # paul: 20
+    max_peak_width: 100  # paul: 100
+    max_acqu_delay: 0.002
+
+  lipid:
+    n_random_lipid: 10
+    max_scaling: 70
+
+  water:
+    scaling_min: 0.1
+    scaling_max: 110.0
+
+output:
+  version: "v_1.0"
+  isolated_water_filename: "IsolatedWater_{version}.npy"
+  train_data_filename: "TrainData_{version}.h5"
+  overwrite: false
