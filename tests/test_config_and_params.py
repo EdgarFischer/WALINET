@@ -10,11 +10,17 @@ def minimal_raw_config():
             "gpu": 0,
         },
         "data": {
+            "source": "precomputed",
             "base_dir": "../data",
             "train_subjects": ["sub_train"],
             "val_subjects": ["sub_val"],
-            "version": "v_test",
-            "train_data_filename": "TrainData_{version}.h5",
+            "normalization": "projection_energy",
+            "precomputed": {
+                "version": "v_test",
+                "train_data_filename": (
+                    "TrainData_{version}.h5"
+                ),
+            },
         },
         "output": {
             "base_dir": "../models",
@@ -56,6 +62,7 @@ def minimal_raw_config():
 
 def test_build_config_reads_architecture_and_normalization():
     raw = minimal_raw_config()
+
     raw["data"]["normalization"] = "max_abs"
 
     cfg = build_config(raw)
@@ -67,20 +74,32 @@ def test_build_config_reads_architecture_and_normalization():
 def test_build_config_defaults_are_backward_compatible():
     raw = minimal_raw_config()
 
-    raw["data"].pop("normalization", None)
-    raw["model"].pop("architecture", None)
+    raw["data"].pop(
+        "normalization",
+        None,
+    )
+
+    raw["model"].pop(
+        "architecture",
+        None,
+    )
 
     cfg = build_config(raw)
 
     assert cfg.model.architecture == "ynet"
-    assert cfg.data.normalization == "projection_energy"
+    assert (
+        cfg.data.normalization
+        == "projection_energy"
+    )
 
 
 def test_cfg_to_params_contains_refactor_keys():
     raw = minimal_raw_config()
+
     raw["data"]["normalization"] = "max_abs"
 
     cfg = build_config(raw)
+
     params = cfg_to_params(cfg)
 
     assert params["architecture"] == "unet"
