@@ -705,38 +705,82 @@ def assemble_spectra(
                 f"  found:    {tuple(operators.shape)}"
             )
 
-        # The operator belongs to the subject from which the
-        # lipid resources were sampled.
-        selected_operators = (
-            operators.index_select(
-                0,
-                sampled.lipid_subject_indices,
-            )
-        )
-
-        expected_selected_shape = (
-            batch_size,
-            n_timepoints,
-            n_timepoints,
-        )
-
-        if (
-            tuple(selected_operators.shape)
-            != expected_selected_shape
-        ):
-            raise RuntimeError(
-                "Unexpected selected projection-operator shape:\n"
-                f"  expected: {expected_selected_shape}\n"
-                f"  found:    {tuple(selected_operators.shape)}"
-            )
-
-        # Row-vector convention:
+        # Apply each subject-specific projection operator only once
+        # to all spectra belonging to that subject.
         #
-        #     projected = spectrum @ operator
-        projected_spectra = torch.bmm(
-            mixture_spectra.unsqueeze(1),
-            selected_operators,
-        ).squeeze(1).contiguous()
+        # This avoids materializing a tensor with shape
+        #
+        #     (batch_size, n_timepoints, n_timepoints)
+        #
+        # which would require approximately 20 GB for
+        # batch_size=3500, n_timepoints=840, complex64.
+        projected_spectra = torch.empty_like(
+            mixture_spectra
+        )
+
+        unique_subject_indices = torch.unique(
+            sampled.lipid_subject_indices
+        )
+
+        for subject_index_tensor in unique_subject_indices:
+            subject_index = int(
+                subject_index_tensor.item()
+            )
+
+            batch_indices = torch.nonzero(
+                sampled.lipid_subject_indices
+                == subject_index_tensor,
+                as_tuple=False,
+            ).squeeze(-1)
+
+            if batch_indices.numel() == 0:
+                continue
+
+            subject_spectra = (
+                mixture_spectra.index_select(
+                    0,
+                    batch_indices,
+                )
+            )
+
+            subject_operator = (
+                operators[subject_index]
+            )
+
+            expected_operator_shape = (
+                n_timepoints,
+                n_timepoints,
+            )
+
+            if (
+                tuple(subject_operator.shape)
+                != expected_operator_shape
+            ):
+                raise RuntimeError(
+                    "Unexpected subject projection-operator shape:\n"
+                    f"  subject index: {subject_index}\n"
+                    f"  expected:      {expected_operator_shape}\n"
+                    f"  found:         "
+                    f"{tuple(subject_operator.shape)}"
+                )
+
+            # Row-vector convention:
+            #
+            #     projected = spectrum @ operator
+            projected_subject_spectra = (
+                subject_spectra
+                @ subject_operator
+            )
+
+            projected_spectra.index_copy_(
+                0,
+                batch_indices,
+                projected_subject_spectra,
+            )
+
+        projected_spectra = (
+            projected_spectra.contiguous()
+        )
 
     else:
         projected_spectra = None
