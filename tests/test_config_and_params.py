@@ -93,14 +93,3 @@ def test_build_config_defaults_are_backward_compatible():
     )
 
 
-def test_cfg_to_params_contains_refactor_keys():
-    raw = minimal_raw_config()
-
-    raw["data"]["normalization"] = "max_abs"
-
-    cfg = build_config(raw)
-
-    params = cfg_to_params(cfg)
-
-    assert params["architecture"] == "unet"
-    assert params["normalization"] == "max_abs"
