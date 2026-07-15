@@ -9,11 +9,65 @@ from dataclasses import dataclass
 class AcquisitionCfg:
     """
     Acquisition parameters of the simulated spectra.
+
+    n_timepoints:
+        Fixed internal FID length and final spectral length.
+
+    min_acquired_n_timepoints:
+        Minimum number of actually acquired FID samples.
+
+    max_acquired_n_timepoints:
+        Maximum number of actually acquired FID samples.
+
+    Samples after the selected acquisition length are set to zero
+    before the final FFT.
     """
 
     bandwidth_hz: float
     n_timepoints: int
+
+    min_acquired_n_timepoints: int
+    max_acquired_n_timepoints: int
+
     nmr_frequency_hz: float
+
+    def __post_init__(
+        self,
+    ) -> None:
+        if self.bandwidth_hz <= 0:
+            raise ValueError(
+                "acquisition.bandwidth_hz must be > 0."
+            )
+
+        if self.n_timepoints <= 0:
+            raise ValueError(
+                "acquisition.n_timepoints must be > 0."
+            )
+
+        if self.min_acquired_n_timepoints <= 0:
+            raise ValueError(
+                "acquisition.min_acquired_n_timepoints "
+                "must be > 0."
+            )
+
+        if (
+            self.max_acquired_n_timepoints
+            < self.min_acquired_n_timepoints
+        ):
+            raise ValueError(
+                "acquisition.max_acquired_n_timepoints "
+                "must be >= "
+                "acquisition.min_acquired_n_timepoints."
+            )
+
+        if (
+            self.max_acquired_n_timepoints
+            > self.n_timepoints
+        ):
+            raise ValueError(
+                "acquisition.max_acquired_n_timepoints "
+                "must be <= acquisition.n_timepoints."
+            )
 
     @property
     def dwell_time_seconds(self) -> float:

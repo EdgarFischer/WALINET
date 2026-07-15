@@ -1,8 +1,17 @@
-version: "simulation_v1"
+version: "simulation_v2"
 
 acquisition:
   bandwidth_hz: 2778.0
-  n_timepoints: 558
+
+  # Fixed internal and output length.
+  # Every final spectrum contains 840 frequency points.
+  n_timepoints: 840
+
+  # Number of actually acquired FID samples.
+  # One integer is sampled independently for every spectrum.
+  min_acquired_n_timepoints: 558
+  max_acquired_n_timepoints: 840
+
   nmr_frequency_hz: 297222931.0
 
 basis:

@@ -449,10 +449,10 @@ class MetaboliteSimulator:
 
         1. Sample concentrations.
         2. Combine PreparedBasis FIDs.
-        3. Apply acquisition delay through a spectral phase ramp.
-        4. Apply global phase.
-        5. Apply frequency shift.
-        6. Apply Gaussian/Lorentzian FID broadening.
+        3. Apply global phase.
+        4. Apply frequency shift.
+        5. Apply Gaussian/Lorentzian FID broadening.
+        6. Apply acquisition delay through a spectral phase ramp.
         7. Transform to fftshifted spectra.
 
     The simulator has no internal random state. An explicit
@@ -586,13 +586,6 @@ class MetaboliteSimulator:
             )
         )
 
-        metabolite_fids = (
-            self._apply_acquisition_delay(
-                metabolite_fids,
-                acquisition_delays,
-            )
-        )
-
         global_phases = self._sample_uniform(
             minimum=0.0,
             maximum=2.0 * math.pi,
@@ -658,7 +651,7 @@ class MetaboliteSimulator:
             - gaussian_fractions
         ) * total_broadening
 
-        clean_fids = (
+        affected_fids = (
             self._apply_fid_effects(
                 metabolite_fids=(
                     metabolite_fids
@@ -675,6 +668,13 @@ class MetaboliteSimulator:
                 lorentzian_broadening=(
                     lorentzian_broadening
                 ),
+            )
+        )
+
+        clean_fids = (
+            self._apply_acquisition_delay(
+                affected_fids,
+                acquisition_delays,
             )
         )
 

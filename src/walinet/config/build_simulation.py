@@ -91,6 +91,34 @@ def validate_simulation_config(
             "acquisition.n_timepoints must be > 0."
         )
 
+    if (
+        cfg.acquisition.min_acquired_n_timepoints
+        <= 0
+    ):
+        raise ValueError(
+            "acquisition.min_acquired_n_timepoints "
+            "must be > 0."
+        )
+
+    if (
+        cfg.acquisition.max_acquired_n_timepoints
+        < cfg.acquisition.min_acquired_n_timepoints
+    ):
+        raise ValueError(
+            "acquisition.max_acquired_n_timepoints "
+            "must be >= "
+            "acquisition.min_acquired_n_timepoints."
+        )
+
+    if (
+        cfg.acquisition.max_acquired_n_timepoints
+        > cfg.acquisition.n_timepoints
+    ):
+        raise ValueError(
+            "acquisition.max_acquired_n_timepoints "
+            "must be <= acquisition.n_timepoints."
+        )
+
     if cfg.acquisition.nmr_frequency_hz <= 0:
         raise ValueError(
             "acquisition.nmr_frequency_hz must be > 0."
@@ -310,6 +338,16 @@ def build_simulation_config(
         ),
         n_timepoints=int(
             acquisition_raw["n_timepoints"]
+        ),
+        min_acquired_n_timepoints=int(
+            acquisition_raw[
+                "min_acquired_n_timepoints"
+            ]
+        ),
+        max_acquired_n_timepoints=int(
+            acquisition_raw[
+                "max_acquired_n_timepoints"
+            ]
         ),
         nmr_frequency_hz=float(
             acquisition_raw["nmr_frequency_hz"]

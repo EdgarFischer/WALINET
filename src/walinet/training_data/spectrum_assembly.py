@@ -1,3 +1,6 @@
+# TARGET DEFINITION: clean water + lipids baseline
+# Input: metabolites + water + lipids + receiver noise
+
 # src/walinet/training_data/spectrum_assembly.py
 
 from __future__ import annotations
@@ -9,6 +12,9 @@ import torch
 
 from walinet.config.schema_simulation import (
     SimulationConfig,
+)
+from walinet.training_data.acquisition_length import (
+    simulate_acquisition_length,
 )
 from walinet.training_data.metabolite_noise import (
     SimulatedNoise,
@@ -35,18 +41,33 @@ class AssembledSpectra:
     water_spectra:
         (batch_size, n_timepoints)
 
+        Scaled water spectra before acquisition-length simulation.
+
     lipid_spectra:
         (batch_size, n_timepoints)
 
+        Scaled lipid spectra before acquisition-length simulation.
+
     clean_mixture_spectra:
-        Clean metabolites + water + lipids.
+        Clean metabolites + water + lipids before receiver noise
+        and before acquisition-length simulation.
 
     mixture_spectra:
-        Clean mixture + receiver noise.
+        Final noisy input after acquisition-length simulation.
+
+    baseline_spectra:
+        Final clean water-plus-lipid target after the same
+        acquisition-length simulation as mixture_spectra.
+
+    acquired_n_timepoints:
+        (batch_size,)
+
+        Number of actually acquired FID samples per batch item.
 
     projected_spectra:
         Optional result after applying the subject-specific
-        frequency-domain lipid-projection operator.
+        frequency-domain lipid-projection operator to the final
+        mixture_spectra.
     """
 
     metabolites: SimulatedMetabolites
@@ -56,7 +77,11 @@ class AssembledSpectra:
     lipid_spectra: torch.Tensor
 
     clean_mixture_spectra: torch.Tensor
+
     mixture_spectra: torch.Tensor
+    baseline_spectra: torch.Tensor
+
+    acquired_n_timepoints: torch.Tensor
 
     projected_spectra: torch.Tensor | None
 
@@ -70,27 +95,34 @@ class AssembledSpectra:
     def clean_metabolite_spectra(
         self,
     ) -> torch.Tensor:
+        """
+        Clean metabolite spectrum before acquisition-length
+        simulation.
+        """
         return self.metabolites.clean_spectra
 
     @property
-    def noisy_metabolite_spectra(
+    def target_spectra(
         self,
     ) -> torch.Tensor:
-        return (
-            self.metabolites.clean_spectra
-            + self.noise.noise_spectra
-        )
+        """
+        Final clean baseline target: water + lipids.
+        """
+        return self.baseline_spectra
 
     @property
     def metabolite_spectra(
         self,
     ) -> torch.Tensor:
         """
-        Training-target style metabolite spectrum.
+        Backward-compatible alias for the training target.
 
-        This retains receiver noise while excluding water and lipids.
+        The target is now the clean water-plus-lipid baseline,
+        not a metabolite spectrum. This alias keeps the current
+        SpectrumSimulator interface working until its naming is
+        cleaned up separately.
         """
-        return self.noisy_metabolite_spectra
+        return self.baseline_spectra
 
     @property
     def input_spectra(
@@ -406,11 +438,15 @@ def assemble_spectra(
     3. Normalize each mixed lipid spectrum by its own maximum.
     4. Apply random water and lipid scaling factors.
     5. Add clean metabolites, water, and lipids.
-    6. Add receiver noise to the complete mixture.
-    7. Optionally apply the frequency-domain lipid projection.
+    6. Add receiver noise to the complete input mixture.
+    7. Build the clean water-plus-lipid baseline target.
+    8. Apply the same sampled acquisition length and zero-filling
+       operation to input and target.
+    9. Optionally apply the frequency-domain lipid projection to
+       the final input.
 
-    Water and lipids are already fft-shifted spectra. No water or
-    lipid FFT is performed in this function.
+    Water and lipids are already fft-shifted spectra when entering
+    this function.
     """
     device = sampled.device
 
@@ -569,27 +605,67 @@ def assemble_spectra(
         * lipid_scaling[:, None]
     ).contiguous()
 
-    clean_mixture_spectra = (
-        clean_metabolite_spectra
-        + water_spectra
+    clean_baseline_spectra = (
+        water_spectra
         + lipid_spectra
     ).contiguous()
 
-    mixture_spectra = (
+    clean_mixture_spectra = (
+        clean_metabolite_spectra
+        + clean_baseline_spectra
+    ).contiguous()
+
+    pre_acquisition_input_spectra = (
         clean_mixture_spectra
         + noise.noise_spectra
     ).contiguous()
 
-    # Future variable-acquisition-length / zero-filling augmentation
-    # belongs here:
+    pre_acquisition_target_spectra = (
+        clean_baseline_spectra
+    )
+
+    # Input and target are transformed together so that every
+    # batch item receives exactly the same sampled acquisition
+    # length in both tensors.
     #
-    # mixture_spectra
-    #     -> IFFT
-    #     -> truncate acquired FID samples
-    #     -> zero-fill
-    #     -> FFT
+    # Input:
+    #     metabolites + water + lipids + receiver noise
     #
-    # The lipid projection should remain after that operation.
+    # Target:
+    #     water + lipids
+    stacked_spectra = torch.stack(
+        (
+            pre_acquisition_input_spectra,
+            pre_acquisition_target_spectra,
+        ),
+        dim=1,
+    )
+
+    acquisition_result = (
+        simulate_acquisition_length(
+            spectra=stacked_spectra,
+            config=config,
+            generator=generator,
+        )
+    )
+
+    mixture_spectra = (
+        acquisition_result
+        .spectra[:, 0, :]
+        .contiguous()
+    )
+
+    baseline_spectra = (
+        acquisition_result
+        .spectra[:, 1, :]
+        .contiguous()
+    )
+
+    acquired_n_timepoints = (
+        acquisition_result
+        .acquired_n_timepoints
+        .contiguous()
+    )
 
     projected_spectra: (
         torch.Tensor | None
@@ -677,6 +753,9 @@ def assemble_spectra(
 
         "mixture_spectra":
             mixture_spectra,
+
+        "baseline_spectra":
+            baseline_spectra,
     }
 
     if projected_spectra is not None:
@@ -699,6 +778,41 @@ def assemble_spectra(
                 f"{name} contains non-finite imaginary values."
             )
 
+    if tuple(
+        acquired_n_timepoints.shape
+    ) != (batch_size,):
+        raise RuntimeError(
+            "Unexpected acquired_n_timepoints shape:\n"
+            f"  expected: {(batch_size,)}\n"
+            f"  found:    "
+            f"{tuple(acquired_n_timepoints.shape)}"
+        )
+
+    if acquired_n_timepoints.device != device:
+        raise RuntimeError(
+            "acquired_n_timepoints is on "
+            f"{acquired_n_timepoints.device}, "
+            f"but expected {device}."
+        )
+
+    if torch.any(
+        acquired_n_timepoints
+        < config.acquisition.min_acquired_n_timepoints
+    ):
+        raise RuntimeError(
+            "At least one sampled acquisition length is below "
+            "the configured minimum."
+        )
+
+    if torch.any(
+        acquired_n_timepoints
+        > config.acquisition.max_acquired_n_timepoints
+    ):
+        raise RuntimeError(
+            "At least one sampled acquisition length is above "
+            "the configured maximum."
+        )
+
     return AssembledSpectra(
         metabolites=metabolites,
         noise=noise,
@@ -709,6 +823,12 @@ def assemble_spectra(
         ),
         mixture_spectra=(
             mixture_spectra
+        ),
+        baseline_spectra=(
+            baseline_spectra
+        ),
+        acquired_n_timepoints=(
+            acquired_n_timepoints
         ),
         projected_spectra=(
             projected_spectra
