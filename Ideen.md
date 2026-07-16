@@ -23,4 +23,6 @@ Für paper:
 * realistische parameter verteilungen : Noramal
 * FWHM jetzt als parameter der die alten ersetzt!
 
+* Tumor Verteilung und healthy separat, im training zufällig ziehen aus welcher verteilung die  metabos gezogen werden.
+
 Bemerkung: Tumor basis 7T ist vollständig und kann ich so nehmen.

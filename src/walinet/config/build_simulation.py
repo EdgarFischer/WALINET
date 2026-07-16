@@ -14,7 +14,9 @@ from .schema_simulation import (
     MetaboliteCfg,
     MetaboliteProfileCfg,
     NoiseCfg,
+    PositiveScalingDistributionCfg,
     SimulationConfig,
+    SNRDistributionCfg,
     SubjectSamplingCfg,
     WaterCfg,
 )
@@ -252,44 +254,56 @@ def build_simulation_config(
     # Noise
     # ---------------------------------------------------------
     noise_raw = raw["noise"]
+    snr_raw = noise_raw["snr"]
 
     noise = NoiseCfg(
-        snr_min=float(
-            noise_raw["snr_min"]
-        ),
-        snr_max=float(
-            noise_raw["snr_max"]
-        ),
+        snr=SNRDistributionCfg(
+            mean=float(
+                snr_raw["mean"]
+            ),
+            std=float(
+                snr_raw["std"]
+            ),
+            min=float(
+                snr_raw["min"]
+            ),
+        )
     )
 
     # ---------------------------------------------------------
     # Water
     # ---------------------------------------------------------
     water_raw = raw["water"]
+    water_scaling_raw = water_raw["scaling"]
 
     water = WaterCfg(
-        scaling_mean=float(
-            water_raw["scaling_mean"]
-        ),
-        scaling_std=float(
-            water_raw["scaling_std"]
-        ),
+        scaling=PositiveScalingDistributionCfg(
+            mean=float(
+                water_scaling_raw["mean"]
+            ),
+            std=float(
+                water_scaling_raw["std"]
+            ),
+        )
     )
 
     # ---------------------------------------------------------
     # Lipids
     # ---------------------------------------------------------
     lipids_raw = raw["lipids"]
+    lipid_scaling_raw = lipids_raw["scaling"]
 
     lipids = LipidCfg(
         n_random_fids=int(
             lipids_raw["n_random_fids"]
         ),
-        scaling_min=float(
-            lipids_raw["scaling_min"]
-        ),
-        scaling_max=float(
-            lipids_raw["scaling_max"]
+        scaling=PositiveScalingDistributionCfg(
+            mean=float(
+                lipid_scaling_raw["mean"]
+            ),
+            std=float(
+                lipid_scaling_raw["std"]
+            ),
         ),
     )
 

@@ -249,64 +249,106 @@ class MetaboliteCfg:
 
 
 @dataclass(frozen=True)
-class NoiseCfg:
+class SNRDistributionCfg:
     """
-    Range from which the target SNR is sampled uniformly.
+    Normal distribution of the target LCModel-compatible SNR.
+
+    The sampled SNR is constrained to be greater than or equal to
+    min. Invalid draws are rejected and sampled again.
+
+    The lower bound prevents the required receiver-noise amplitude
+    from diverging as SNR approaches zero.
     """
 
-    snr_min: float
-    snr_max: float
+    mean: float
+    std: float
+    min: float
 
     def __post_init__(self) -> None:
         if (
-            not math.isfinite(self.snr_min)
-            or self.snr_min <= 0
+            not math.isfinite(self.mean)
+            or self.mean <= 0
         ):
             raise ValueError(
-                "noise.snr_min must be finite and > 0."
+                "noise.snr.mean must be finite and > 0."
             )
 
-        if not math.isfinite(self.snr_max):
+        if (
+            not math.isfinite(self.std)
+            or self.std < 0
+        ):
             raise ValueError(
-                "noise.snr_max must be finite."
+                "noise.snr.std must be finite and >= 0."
             )
 
-        if self.snr_max < self.snr_min:
+        if (
+            not math.isfinite(self.min)
+            or self.min <= 0
+        ):
             raise ValueError(
-                "noise.snr_max must be >= noise.snr_min."
+                "noise.snr.min must be finite and > 0."
+            )
+
+
+@dataclass(frozen=True)
+class NoiseCfg:
+    """
+    Receiver-noise simulation parameters.
+
+    The target LCModel-compatible SNR is sampled from a normal
+    distribution with an explicit lower bound.
+
+    Receiver noise is subsequently scaled according to
+
+        SNR = maximum metabolite peak
+              / (2 * RMS(receiver noise)).
+    """
+
+    snr: SNRDistributionCfg
+
+
+@dataclass(frozen=True)
+class PositiveScalingDistributionCfg:
+    """
+    Normal distribution of a positive scaling factor.
+
+    Non-positive draws are rejected and sampled again.
+    """
+
+    mean: float
+    std: float
+
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(self.mean)
+            or self.mean <= 0
+        ):
+            raise ValueError(
+                "Scaling-distribution mean must be "
+                "finite and > 0."
+            )
+
+        if (
+            not math.isfinite(self.std)
+            or self.std < 0
+        ):
+            raise ValueError(
+                "Scaling-distribution std must be "
+                "finite and >= 0."
             )
 
 
 @dataclass(frozen=True)
 class WaterCfg:
     """
-    Normal distribution of water scaling relative to the maximum
-    absolute metabolite-spectrum amplitude.
+    Water scaling relative to the maximum absolute
+    metabolite-spectrum amplitude.
 
+    Scaling is sampled from a normal distribution.
     Non-positive draws are rejected and sampled again.
     """
 
-    scaling_mean: float
-    scaling_std: float
-
-    def __post_init__(self) -> None:
-        if (
-            not math.isfinite(self.scaling_mean)
-            or self.scaling_mean <= 0
-        ):
-            raise ValueError(
-                "water.scaling_mean must be "
-                "finite and > 0."
-            )
-
-        if (
-            not math.isfinite(self.scaling_std)
-            or self.scaling_std < 0
-        ):
-            raise ValueError(
-                "water.scaling_std must be "
-                "finite and >= 0."
-            )
+    scaling: PositiveScalingDistributionCfg
 
 
 @dataclass(frozen=True)
@@ -314,37 +356,17 @@ class LipidCfg:
     """
     Lipid baseline simulation parameters.
 
-    Lipid scaling is always sampled log-uniformly.
+    Lipid scaling is sampled from a normal distribution.
+    Non-positive draws are rejected and sampled again.
     """
 
     n_random_fids: int
-    scaling_min: float
-    scaling_max: float
+    scaling: PositiveScalingDistributionCfg
 
     def __post_init__(self) -> None:
         if self.n_random_fids <= 0:
             raise ValueError(
                 "lipids.n_random_fids must be > 0."
-            )
-
-        if (
-            not math.isfinite(self.scaling_min)
-            or self.scaling_min <= 0
-        ):
-            raise ValueError(
-                "lipids.scaling_min must be "
-                "finite and > 0."
-            )
-
-        if not math.isfinite(self.scaling_max):
-            raise ValueError(
-                "lipids.scaling_max must be finite."
-            )
-
-        if self.scaling_max < self.scaling_min:
-            raise ValueError(
-                "lipids.scaling_max must be >= "
-                "lipids.scaling_min."
             )
 
 

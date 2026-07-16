@@ -1,9 +1,10 @@
 version: "simulation_v4"
 
+
 acquisition:
   bandwidth_hz: 2778.0
 
-  # Fixed internal and output length.
+  # Fixed internal and output length after zero-filling.
   n_timepoints: 840
 
   # Actually acquired FID samples before zero-filling.
@@ -34,20 +35,32 @@ metabolites:
 
 
 noise:
-  snr_min: 1.0
-  snr_max: 10.0
+  # LCModel-compatible target S/N:
+  #
+  # S/N = maximum metabolite peak /
+  #       (2 * RMS(receiver noise))
+  #
+  # S/N is sampled from a normal distribution. Unlike the other
+  # normally distributed parameters, it has an explicit lower bound
+  # because the required noise amplitude diverges as S/N approaches zero.
+  snr:
+    mean: 5.5
+    std: 2.25
+    min: 1.0
 
 
 water:
-  scaling_mean: 15.0
-  scaling_std: 25.0
+  scaling:
+    mean: 15.0
+    std: 25.0
 
 
 lipids:
   n_random_fids: 10
 
-  scaling_min: 0.1
-  scaling_max: 70.0
+  scaling:
+    mean: 35.05
+    std: 17.475
 
 
 subject_sampling:

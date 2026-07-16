@@ -14,34 +14,28 @@ from walinet.training_data.metabolite_simulation import (
 )
 
 
-LEGACY_NOISE_CALIBRATION = 0.65
-
-
 @dataclass(frozen=True)
 class SimulatedNoise:
     """
-    Complex white receiver noise in the frequency domain.
+    Unscaled complex white receiver noise and sampled target SNR.
+
+    The final noise scaling is performed after acquisition-length
+    simulation so that the requested LCModel-compatible SNR is
+    reproduced in the final frequency-domain spectrum.
 
     Shapes
     ------
     noise_spectra:
-        (batch_size, n_timepoints)
+        Unscaled complex white noise, shape
+        (batch_size, n_timepoints).
 
     snr:
-        (batch_size,)
-
-    clean_spectrum_std:
-        (batch_size,)
-
-    noise_scale:
-        (batch_size,)
+        Sampled target LCModel-compatible SNR, shape
+        (batch_size,).
     """
 
     noise_spectra: torch.Tensor
-
     snr: torch.Tensor
-    clean_spectrum_std: torch.Tensor
-    noise_scale: torch.Tensor
 
     @property
     def batch_size(self) -> int:
@@ -104,83 +98,73 @@ def _sample_snr(
     generator: torch.Generator,
 ) -> torch.Tensor:
     """
-    Sample the legacy SNR parameter uniformly.
+    Sample target LCModel-compatible SNR from a normal
+    distribution truncated at the configured lower bound.
+
+    Values below noise.snr.min are rejected and sampled again.
+    They are not clipped, avoiding an artificial accumulation
+    exactly at the lower bound.
     """
-    snr_min = float(
-        config.noise.snr_min
+    mean = float(
+        config.noise.snr.mean
     )
 
-    snr_max = float(
-        config.noise.snr_max
+    std = float(
+        config.noise.snr.std
     )
 
-    if snr_min <= 0:
-        raise ValueError(
-            "noise.snr_min must be > 0."
-        )
+    minimum = float(
+        config.noise.snr.min
+    )
 
-    if snr_max < snr_min:
-        raise ValueError(
-            "noise.snr_max must be >= noise.snr_min."
-        )
+    if std == 0:
+        if mean < minimum:
+            raise ValueError(
+                "Cannot sample SNR when noise.snr.std == 0 "
+                "and noise.snr.mean < noise.snr.min."
+            )
 
-    if snr_min == snr_max:
         return torch.full(
             (batch_size,),
-            fill_value=snr_min,
+            fill_value=mean,
             dtype=dtype,
             device=device,
         )
 
-    random_values = torch.rand(
-        (batch_size,),
-        generator=generator,
-        device=device,
-        dtype=dtype,
-    )
-
-    return (
-        snr_min
-        + (
-            snr_max
-            - snr_min
-        )
-        * random_values
-    )
-
-
-def _complex_population_std(
-    spectra: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Match NumPy's default population standard deviation for
-    complex-valued data:
-
-        sqrt(mean(abs(x - mean(x)) ** 2))
-
-    Returns
-    -------
-    torch.Tensor
-        One real standard deviation per spectrum, shape (B,).
-    """
-    centered = (
-        spectra
-        - spectra.mean(
-            dim=-1,
-            keepdim=True,
+    snr = (
+        mean
+        + std
+        * torch.randn(
+            (batch_size,),
+            generator=generator,
+            device=device,
+            dtype=dtype,
         )
     )
 
-    variance = torch.mean(
-        torch.abs(
-            centered
-        ).square(),
-        dim=-1,
-    )
+    invalid = snr < minimum
 
-    return torch.sqrt(
-        variance
-    )
+    while torch.any(
+        invalid
+    ):
+        n_invalid = int(
+            invalid.sum().item()
+        )
+
+        snr[invalid] = (
+            mean
+            + std
+            * torch.randn(
+                (n_invalid,),
+                generator=generator,
+                device=device,
+                dtype=dtype,
+            )
+        )
+
+        invalid = snr < minimum
+
+    return snr.contiguous()
 
 
 def simulate_receiver_noise(
@@ -190,29 +174,21 @@ def simulate_receiver_noise(
     generator: torch.Generator,
 ) -> SimulatedNoise:
     """
-    Generate complex white receiver noise directly in the
-    frequency domain.
+    Sample target SNR and generate unscaled complex white
+    receiver noise.
 
-    The legacy WALINET scaling rule is retained:
+    The final noise amplitude is intentionally not determined here.
 
-        snr ~ Uniform(snr_min, snr_max)
+    Variable acquisition length and zero-filling subsequently alter
+    the frequency-domain noise realization. Therefore, the noise is
+    scaled after acquisition-length simulation according to
 
-        noise_scale =
-            std(clean_metabolite_spectrum)
-            / 0.65
-            / snr
+        LCModel SNR =
+            maximum real metabolite peak
+            / (2 * RMS(real receiver noise)).
 
-        noise =
-            noise_scale
-            * (
-                Normal(0, 1)
-                + i * Normal(0, 1)
-            )
-
-    No IFFT or additional FFT is required.
-
-    The noise is added to the complete assembled spectrum later in
-    spectrum_assembly.py.
+    This ensures that the requested SNR applies to the final
+    frequency-domain spectrum used for training.
     """
     clean_spectra = (
         metabolites.clean_spectra
@@ -272,33 +248,6 @@ def simulate_receiver_noise(
         generator=generator,
     )
 
-    clean_spectrum_std = (
-        _complex_population_std(
-            clean_spectra
-        )
-    )
-
-    if torch.any(
-        clean_spectrum_std <= 0
-    ):
-        invalid_indices = torch.nonzero(
-            clean_spectrum_std <= 0,
-            as_tuple=False,
-        ).squeeze(-1)
-
-        raise RuntimeError(
-            "At least one clean metabolite spectrum has "
-            "zero standard deviation:\n"
-            f"  batch indices: "
-            f"{invalid_indices.detach().cpu().tolist()}"
-        )
-
-    noise_scale = (
-        clean_spectrum_std
-        / LEGACY_NOISE_CALIBRATION
-        / snr
-    )
-
     noise_real = torch.randn(
         (
             batch_size,
@@ -319,12 +268,9 @@ def simulate_receiver_noise(
         dtype=real_dtype,
     )
 
-    noise_spectra = (
-        torch.complex(
-            noise_real,
-            noise_imag,
-        )
-        * noise_scale[:, None]
+    noise_spectra = torch.complex(
+        noise_real,
+        noise_imag,
     ).contiguous()
 
     if not torch.isfinite(
@@ -345,11 +291,5 @@ def simulate_receiver_noise(
 
     return SimulatedNoise(
         noise_spectra=noise_spectra,
-        snr=snr.contiguous(),
-        clean_spectrum_std=(
-            clean_spectrum_std.contiguous()
-        ),
-        noise_scale=(
-            noise_scale.contiguous()
-        ),
+        snr=snr,
     )

@@ -156,7 +156,6 @@ class AssembledSpectra:
         return self.mixture_spectra.device
 
 
-
 def _validate_generator_device(
     *,
     generator: torch.Generator,
@@ -186,7 +185,6 @@ def _validate_generator_device(
             f"  generator: {generator_device}\n"
             f"  signals:   {device}"
         )
-
 
 
 def _sample_normal(
@@ -291,76 +289,6 @@ def _sample_positive_normal(
     return values.contiguous()
 
 
-def _sample_lipid_scaling(
-    *,
-    config: SimulationConfig,
-    batch_size: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    generator: torch.Generator,
-) -> torch.Tensor:
-    """
-    Sample lipid scaling log-uniformly.
-    """
-    minimum = float(
-        config.lipids.scaling_min
-    )
-
-    maximum = float(
-        config.lipids.scaling_max
-    )
-
-    if minimum <= 0:
-        raise ValueError(
-            "Log-uniform lipid scaling requires "
-            "lipids.scaling_min > 0."
-        )
-
-    if maximum <= 0:
-        raise ValueError(
-            "Log-uniform lipid scaling requires "
-            "lipids.scaling_max > 0."
-        )
-
-    if maximum < minimum:
-        raise ValueError(
-            "lipids.scaling_max must be >= "
-            "lipids.scaling_min."
-        )
-
-    if minimum == maximum:
-        return torch.full(
-            (batch_size,),
-            fill_value=minimum,
-            device=device,
-            dtype=dtype,
-        )
-
-    random_values = torch.rand(
-        (batch_size,),
-        generator=generator,
-        device=device,
-        dtype=dtype,
-    )
-
-    log_minimum = math.log(
-        minimum
-    )
-
-    log_maximum = math.log(
-        maximum
-    )
-
-    return torch.exp(
-        log_minimum
-        + (
-            log_maximum
-            - log_minimum
-        )
-        * random_values
-    ).contiguous()
-
-
 def _maximum_absolute_value(
     spectra: torch.Tensor,
     *,
@@ -456,8 +384,8 @@ def assemble_spectra(
     1. Use the clean metabolite spectrum as amplitude reference.
     2. Normalize each sampled water spectrum by its own maximum.
     3. Normalize each mixed lipid spectrum by its own maximum.
-    4. Sample positive-normal water scaling and log-uniform
-       lipid scaling, then apply both factors.
+    4. Sample positive-normal water and lipid scaling factors,
+       then apply both factors.
     5. Add clean metabolites, water, and lipids.
     6. Add receiver noise to the complete input mixture.
     7. Build the clean water-plus-lipid baseline target.
@@ -591,10 +519,10 @@ def assemble_spectra(
 
     water_scaling = _sample_positive_normal(
         mean=float(
-            config.water.scaling_mean
+            config.water.scaling.mean
         ),
         std=float(
-            config.water.scaling_std
+            config.water.scaling.std
         ),
         batch_size=batch_size,
         device=device,
@@ -602,14 +530,17 @@ def assemble_spectra(
         generator=generator,
     )
 
-    lipid_scaling = (
-        _sample_lipid_scaling(
-            config=config,
-            batch_size=batch_size,
-            device=device,
-            dtype=real_dtype,
-            generator=generator,
-        )
+    lipid_scaling = _sample_positive_normal(
+        mean=float(
+            config.lipids.scaling.mean
+        ),
+        std=float(
+            config.lipids.scaling.std
+        ),
+        batch_size=batch_size,
+        device=device,
+        dtype=real_dtype,
+        generator=generator,
     )
 
     water_spectra = (
