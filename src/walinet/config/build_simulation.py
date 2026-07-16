@@ -7,7 +7,8 @@ from pathlib import Path
 from .schema_simulation import (
     AcquisitionCfg,
     BasisCfg,
-    LineBroadeningCfg,
+    FrequencyShiftCfg,
+    FWHMCfg,
     LipidCfg,
     LipidProjectionCfg,
     MetaboliteCfg,
@@ -16,18 +17,6 @@ from .schema_simulation import (
     SubjectSamplingCfg,
     WaterCfg,
 )
-
-
-VALID_LIPID_SCALING_DISTRIBUTIONS = {
-    "uniform",
-    "log_uniform",
-}
-
-VALID_SUBJECT_MIXING_MODES = {
-    "same_subject",
-    "separate_water_lipid_subjects",
-    "independent_lipid_fids",
-}
 
 
 def _resolve_path(
@@ -67,232 +56,24 @@ def validate_simulation_config(
     cfg: SimulationConfig,
 ) -> None:
     """
-    Validate the complete simulation configuration.
-    """
+    Validate cross-component configuration constraints.
 
-    # ---------------------------------------------------------
-    # General
-    # ---------------------------------------------------------
+    Parameter-specific validation is performed by the individual
+    frozen dataclasses in schema_simulation.py.
+    """
     if not cfg.version.strip():
         raise ValueError(
             "version must not be empty."
         )
 
-    # ---------------------------------------------------------
-    # Acquisition
-    # ---------------------------------------------------------
-    if cfg.acquisition.bandwidth_hz <= 0:
-        raise ValueError(
-            "acquisition.bandwidth_hz must be > 0."
-        )
-
-    if cfg.acquisition.n_timepoints <= 0:
-        raise ValueError(
-            "acquisition.n_timepoints must be > 0."
-        )
-
-    if (
-        cfg.acquisition.min_acquired_n_timepoints
-        <= 0
-    ):
-        raise ValueError(
-            "acquisition.min_acquired_n_timepoints "
-            "must be > 0."
-        )
-
-    if (
-        cfg.acquisition.max_acquired_n_timepoints
-        < cfg.acquisition.min_acquired_n_timepoints
-    ):
-        raise ValueError(
-            "acquisition.max_acquired_n_timepoints "
-            "must be >= "
-            "acquisition.min_acquired_n_timepoints."
-        )
-
-    if (
-        cfg.acquisition.max_acquired_n_timepoints
-        > cfg.acquisition.n_timepoints
-    ):
-        raise ValueError(
-            "acquisition.max_acquired_n_timepoints "
-            "must be <= acquisition.n_timepoints."
-        )
-
-    if cfg.acquisition.nmr_frequency_hz <= 0:
-        raise ValueError(
-            "acquisition.nmr_frequency_hz must be > 0."
-        )
-
-    # ---------------------------------------------------------
-    # Basis
-    # ---------------------------------------------------------
     if not cfg.basis.config.strip():
         raise ValueError(
             "basis.config must not be empty."
         )
 
-    # ---------------------------------------------------------
-    # Metabolites
-    # ---------------------------------------------------------
     if not cfg.metabolites.config.strip():
         raise ValueError(
             "metabolites.config must not be empty."
-        )
-
-    if (
-        cfg.metabolites.max_acquisition_delay_seconds
-        < 0
-    ):
-        raise ValueError(
-            "metabolites.max_acquisition_delay_seconds "
-            "must be >= 0."
-        )
-
-    if (
-        cfg.metabolites.max_frequency_shift_hz
-        < 0
-    ):
-        raise ValueError(
-            "metabolites.max_frequency_shift_hz "
-            "must be >= 0."
-        )
-
-    line_broadening = (
-        cfg.metabolites.line_broadening
-    )
-
-    if line_broadening.minimum < 0:
-        raise ValueError(
-            "metabolites.line_broadening.min "
-            "must be >= 0."
-        )
-
-    if (
-        line_broadening.maximum
-        < line_broadening.minimum
-    ):
-        raise ValueError(
-            "metabolites.line_broadening.max must be "
-            ">= metabolites.line_broadening.min."
-        )
-
-    if not (
-        0.0
-        <= line_broadening.gaussian_fraction_min
-        <= 1.0
-    ):
-        raise ValueError(
-            "metabolites.line_broadening."
-            "gaussian_fraction_min must be in [0, 1]."
-        )
-
-    if not (
-        0.0
-        <= line_broadening.gaussian_fraction_max
-        <= 1.0
-    ):
-        raise ValueError(
-            "metabolites.line_broadening."
-            "gaussian_fraction_max must be in [0, 1]."
-        )
-
-    if (
-        line_broadening.gaussian_fraction_max
-        < line_broadening.gaussian_fraction_min
-    ):
-        raise ValueError(
-            "metabolites.line_broadening."
-            "gaussian_fraction_max must be >= "
-            "gaussian_fraction_min."
-        )
-
-    # ---------------------------------------------------------
-    # Noise
-    # ---------------------------------------------------------
-    if cfg.noise.snr_min <= 0:
-        raise ValueError(
-            "noise.snr_min must be > 0."
-        )
-
-    if cfg.noise.snr_max < cfg.noise.snr_min:
-        raise ValueError(
-            "noise.snr_max must be >= noise.snr_min."
-        )
-
-    # ---------------------------------------------------------
-    # Water
-    # ---------------------------------------------------------
-    if cfg.water.scaling_min < 0:
-        raise ValueError(
-            "water.scaling_min must be >= 0."
-        )
-
-    if (
-        cfg.water.scaling_max
-        < cfg.water.scaling_min
-    ):
-        raise ValueError(
-            "water.scaling_max must be >= "
-            "water.scaling_min."
-        )
-
-    # ---------------------------------------------------------
-    # Lipids
-    # ---------------------------------------------------------
-    if cfg.lipids.n_random_fids <= 0:
-        raise ValueError(
-            "lipids.n_random_fids must be > 0."
-        )
-
-    if cfg.lipids.scaling_min < 0:
-        raise ValueError(
-            "lipids.scaling_min must be >= 0."
-        )
-
-    if (
-        cfg.lipids.scaling_max
-        < cfg.lipids.scaling_min
-    ):
-        raise ValueError(
-            "lipids.scaling_max must be >= "
-            "lipids.scaling_min."
-        )
-
-    if (
-        cfg.lipids.scaling_distribution
-        not in VALID_LIPID_SCALING_DISTRIBUTIONS
-    ):
-        raise ValueError(
-            "lipids.scaling_distribution must be one of "
-            f"{sorted(VALID_LIPID_SCALING_DISTRIBUTIONS)}, "
-            "but found "
-            f"{cfg.lipids.scaling_distribution!r}."
-        )
-
-    if (
-        cfg.lipids.scaling_distribution
-        == "log_uniform"
-        and cfg.lipids.scaling_min <= 0
-    ):
-        raise ValueError(
-            "lipids.scaling_min must be > 0 when "
-            "lipids.scaling_distribution is "
-            "'log_uniform'."
-        )
-
-    # ---------------------------------------------------------
-    # Subject sampling
-    # ---------------------------------------------------------
-    if (
-        cfg.subject_sampling.mixing
-        not in VALID_SUBJECT_MIXING_MODES
-    ):
-        raise ValueError(
-            "subject_sampling.mixing must be one of "
-            f"{sorted(VALID_SUBJECT_MIXING_MODES)}, "
-            "but found "
-            f"{cfg.subject_sampling.mixing!r}."
         )
 
     # The stored subject-specific projection operator is only
@@ -361,7 +142,9 @@ def build_simulation_config(
 
     basis = BasisCfg(
         config=_resolve_path(
-            str(basis_raw["config"]),
+            str(
+                basis_raw["config"]
+            ),
             config_dir,
         ),
     )
@@ -371,34 +154,35 @@ def build_simulation_config(
     # ---------------------------------------------------------
     metabolites_raw = raw["metabolites"]
 
-    line_broadening_raw = metabolites_raw[
-        "line_broadening"
+    frequency_shift_raw = metabolites_raw[
+        "frequency_shift"
     ]
 
-    line_broadening = LineBroadeningCfg(
-        minimum=float(
-            line_broadening_raw["min"]
+    frequency_shift = FrequencyShiftCfg(
+        mean_hz=float(
+            frequency_shift_raw["mean_hz"]
         ),
-        maximum=float(
-            line_broadening_raw["max"]
+        std_hz=float(
+            frequency_shift_raw["std_hz"]
         ),
-        gaussian_fraction_min=float(
-            line_broadening_raw.get(
-                "gaussian_fraction_min",
-                0.0,
-            )
+    )
+
+    fwhm_raw = metabolites_raw["fwhm"]
+
+    fwhm = FWHMCfg(
+        mean_hz=float(
+            fwhm_raw["mean_hz"]
         ),
-        gaussian_fraction_max=float(
-            line_broadening_raw.get(
-                "gaussian_fraction_max",
-                1.0,
-            )
+        std_hz=float(
+            fwhm_raw["std_hz"]
         ),
     )
 
     metabolites = MetaboliteCfg(
         config=_resolve_path(
-            str(metabolites_raw["config"]),
+            str(
+                metabolites_raw["config"]
+            ),
             config_dir,
         ),
         max_acquisition_delay_seconds=float(
@@ -407,13 +191,8 @@ def build_simulation_config(
                 0.0,
             )
         ),
-        max_frequency_shift_hz=float(
-            metabolites_raw.get(
-                "max_frequency_shift_hz",
-                0.0,
-            )
-        ),
-        line_broadening=line_broadening,
+        frequency_shift=frequency_shift,
+        fwhm=fwhm,
     )
 
     # ---------------------------------------------------------
@@ -436,11 +215,11 @@ def build_simulation_config(
     water_raw = raw["water"]
 
     water = WaterCfg(
-        scaling_min=float(
-            water_raw["scaling_min"]
+        scaling_mean=float(
+            water_raw["scaling_mean"]
         ),
-        scaling_max=float(
-            water_raw["scaling_max"]
+        scaling_std=float(
+            water_raw["scaling_std"]
         ),
     )
 
@@ -458,12 +237,6 @@ def build_simulation_config(
         ),
         scaling_max=float(
             lipids_raw["scaling_max"]
-        ),
-        scaling_distribution=str(
-            lipids_raw.get(
-                "scaling_distribution",
-                "log_uniform",
-            )
         ),
     )
 

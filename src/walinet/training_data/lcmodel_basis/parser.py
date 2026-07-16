@@ -355,3 +355,221 @@ def load_lcmodel_basis(
             dtype=np.int32,
         ),
     )
+
+
+import numpy as np
+
+
+def apply_low_ppm_artifact_corrections(
+    processed_basis,
+    basis,
+    corrections: dict[str, dict[str, float]],
+):
+    """
+    Apply metabolite-specific smooth low-ppm suppression to the
+    HLSVD-cleaned basis components.
+
+    The corrected clean FIDs are written back into processed_basis.
+    The removed-reference FIDs are then recomputed so that
+
+        original_fid
+        =
+        clean_fid
+        +
+        reference_fid
+
+    remains exactly satisfied.
+    """
+    if not corrections:
+        print(
+            "No low-ppm artifact corrections requested."
+        )
+        return processed_basis
+
+    names = list(
+        processed_basis.names
+    )
+
+    missing_metabolites = sorted(
+        set(corrections)
+        - set(names)
+    )
+
+    if missing_metabolites:
+        raise KeyError(
+            "Correction requested for missing metabolites:\n"
+            f"  {missing_metabolites}"
+        )
+
+    clean_fids = np.asarray(
+        processed_basis.clean_fids
+    ).copy()
+
+    original_fids = np.asarray(
+        processed_basis.original_fids
+    )
+
+    if clean_fids.shape != original_fids.shape:
+        raise ValueError(
+            "clean_fids and original_fids have "
+            "different shapes."
+        )
+
+    n_points = int(
+        clean_fids.shape[-1]
+    )
+
+    dwell_time = float(
+        basis.dwell_time
+    )
+
+    hz_per_ppm = float(
+        basis.hz_per_ppm
+    )
+
+    ppm_reference = float(
+        processed_basis.ppm_reference
+    )
+
+    frequency_axis_hz = np.fft.fftshift(
+        np.fft.fftfreq(
+            n_points,
+            d=dwell_time,
+        )
+    )
+
+    ppm_axis = (
+        ppm_reference
+        + frequency_axis_hz / hz_per_ppm
+    )
+
+    for metabolite, settings in corrections.items():
+        zero_below_ppm = float(
+            settings["zero_below_ppm"]
+        )
+
+        keep_above_ppm = float(
+            settings["keep_above_ppm"]
+        )
+
+        if not np.isfinite(
+            zero_below_ppm
+        ):
+            raise ValueError(
+                f"{metabolite}: zero_below_ppm "
+                "must be finite."
+            )
+
+        if not np.isfinite(
+            keep_above_ppm
+        ):
+            raise ValueError(
+                f"{metabolite}: keep_above_ppm "
+                "must be finite."
+            )
+
+        if keep_above_ppm <= zero_below_ppm:
+            raise ValueError(
+                f"{metabolite}: keep_above_ppm must "
+                "be greater than zero_below_ppm."
+            )
+
+        metabolite_index = names.index(
+            metabolite
+        )
+
+        clean_fid = clean_fids[
+            metabolite_index
+        ]
+
+        clean_spectrum = np.fft.fftshift(
+            np.fft.fft(
+                clean_fid
+            )
+        )
+
+        taper = np.ones(
+            n_points,
+            dtype=np.float64,
+        )
+
+        taper[
+            ppm_axis <= zero_below_ppm
+        ] = 0.0
+
+        transition_mask = (
+            (ppm_axis > zero_below_ppm)
+            & (ppm_axis < keep_above_ppm)
+        )
+
+        transition_position = (
+            (
+                ppm_axis[transition_mask]
+                - zero_below_ppm
+            )
+            / (
+                keep_above_ppm
+                - zero_below_ppm
+            )
+        )
+
+        taper[transition_mask] = (
+            0.5
+            - 0.5
+            * np.cos(
+                np.pi
+                * transition_position
+            )
+        )
+
+        corrected_spectrum = (
+            clean_spectrum
+            * taper
+        )
+
+        corrected_fid = np.fft.ifft(
+            np.fft.ifftshift(
+                corrected_spectrum
+            )
+        )
+
+        clean_fids[
+            metabolite_index
+        ] = corrected_fid
+
+        print(
+            f"[Low-ppm correction] {metabolite}: "
+            f"zero below {zero_below_ppm:.3f} ppm, "
+            f"unchanged above {keep_above_ppm:.3f} ppm"
+        )
+
+    # Preserve exact decomposition:
+    #
+    # original = clean + removed reference
+    reference_fids = (
+        original_fids
+        - clean_fids
+    )
+
+    processed_basis.clean_fids[...] = (
+        clean_fids
+    )
+
+    processed_basis.reference_fids[...] = (
+        reference_fids
+    )
+
+    reconstruction_error = np.max(
+        np.abs(
+            processed_basis.clean_fids
+            + processed_basis.reference_fids
+            - processed_basis.original_fids
+        )
+    )
+
+    print(
+        "Maximum reconstruction error after correction:",
+        f"{reconstruction_error:.3e}",
+    )
+
+    return processed_basis

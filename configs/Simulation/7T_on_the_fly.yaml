@@ -1,51 +1,67 @@
-version: "simulation_v2"
+version: "simulation_v3"
 
 acquisition:
   bandwidth_hz: 2778.0
 
   # Fixed internal and output length.
-  # Every final spectrum contains 840 frequency points.
   n_timepoints: 840
 
-  # Number of actually acquired FID samples.
-  # One integer is sampled independently for every spectrum.
+  # Actually acquired FID samples before zero-filling.
   min_acquired_n_timepoints: 558
   max_acquired_n_timepoints: 840
 
   nmr_frequency_hz: 297222931.0
 
+
 basis:
   config: "Basis_7T.yaml"
+
 
 metabolites:
   config: "Metabos.yaml"
 
+  # Sampled uniformly from
+  # [-max_acquisition_delay_seconds,
+  #  +max_acquisition_delay_seconds].
   max_acquisition_delay_seconds: 0.002
-  max_frequency_shift_hz: 40.0
 
-  line_broadening:
-    min: 10.0
-    max: 100.0
-    gaussian_fraction_min: 0.0
-    gaussian_fraction_max: 1.0
+  # Ordinary normal distribution.
+  frequency_shift:
+    mean_hz: 0
+    std_hz: 5
+
+  # Normal distribution with rejection of values <= 0.
+  # This is the target total Voigt FWHM.
+  fwhm:
+    mean_hz: 15
+    std_hz: 8
+
 
 noise:
   snr_min: 1.0
   snr_max: 10.0
 
+
 water:
-  scaling_min: 0.1
-  scaling_max: 110.0
+  # Normal distribution with rejection of values <= 0.
+  # Directly represents:
+  # max|water| / max|metabolites|
+  scaling_mean: 15
+  scaling_std: 25
 
 lipids:
   n_random_fids: 10
 
+  # Always sampled log-uniformly.
+  # Directly represents:
+  # max|lipids| / max|metabolites|
   scaling_min: 0.1
   scaling_max: 70.0
-  scaling_distribution: "log_uniform"
+
 
 subject_sampling:
   mixing: "same_subject"
+
 
 lipid_projection:
   enabled: false

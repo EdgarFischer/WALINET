@@ -18,6 +18,10 @@ from walinet.training_data.lcmodel_basis.acquisition import (
 )
 
 
+VOIGT_LORENTZ_COEFFICIENT = 0.5346
+VOIGT_LORENTZ_SQUARED_COEFFICIENT = 0.2166
+
+
 @dataclass(frozen=True)
 class MetaboliteSamplingTable:
     """
@@ -42,9 +46,6 @@ class MetaboliteSamplingTable:
     means: torch.Tensor
     stds: torch.Tensor
     enabled_mask: torch.Tensor
-
-    clip_negative_values: bool
-    minimum_concentration: float
 
     @property
     def n_basis_components(self) -> int:
@@ -91,10 +92,10 @@ class SimulatedMetabolites:
     global_phases_radians: torch.Tensor
     frequency_shifts_hz: torch.Tensor
 
-    total_broadening: torch.Tensor
-    gaussian_fractions: torch.Tensor
-    gaussian_broadening: torch.Tensor
-    lorentzian_broadening: torch.Tensor
+    voigt_fwhm_hz: torch.Tensor
+    lorentzian_fractions: torch.Tensor
+    gaussian_fwhm_hz: torch.Tensor
+    lorentzian_fwhm_hz: torch.Tensor
 
     @property
     def batch_size(self) -> int:
@@ -152,6 +153,10 @@ def load_metabolite_sampling_table(
     Load Metabos.yaml and align its concentration distributions
     with PreparedBasis.names.
 
+    Every enabled metabolite uses a normal distribution. Negative
+    concentration draws are rejected and sampled again later by
+    MetaboliteSimulator.
+
     Disabled or unspecified basis components receive mean=0,
     std=0, and enabled=False.
     """
@@ -195,35 +200,7 @@ def load_metabolite_sampling_table(
     if default_distribution != "normal":
         raise ValueError(
             "Only normal concentration distributions "
-            "are currently supported."
-        )
-
-    clip_negative_values = bool(
-        sampling_raw.get(
-            "clip_negative_values",
-            True,
-        )
-    )
-
-    minimum_concentration = float(
-        sampling_raw.get(
-            "minimum_concentration",
-            0.0,
-        )
-    )
-
-    if not np.isfinite(
-        minimum_concentration
-    ):
-        raise ValueError(
-            "sampling.minimum_concentration "
-            "must be finite."
-        )
-
-    if minimum_concentration < 0:
-        raise ValueError(
-            "sampling.minimum_concentration "
-            "must be >= 0."
+            "are supported."
         )
 
     metabolites_raw = raw.get(
@@ -384,6 +361,13 @@ def load_metabolite_sampling_table(
                 "and >= 0."
             )
 
+        if std == 0 and mean < 0:
+            raise ValueError(
+                f"Metabolite {config_name!r} has mean < 0 "
+                "and std = 0, so a non-negative value can "
+                "never be sampled."
+            )
+
         means[basis_index] = mean
         stds[basis_index] = std
         enabled_mask[basis_index] = True
@@ -405,7 +389,7 @@ def load_metabolite_sampling_table(
             "No enabled metabolites were found."
         )
 
-    table = MetaboliteSamplingTable(
+    return MetaboliteSamplingTable(
         basis_names=tuple(
             prepared_basis.names
         ),
@@ -430,15 +414,7 @@ def load_metabolite_sampling_table(
         ).to(
             device=device
         ),
-        clip_negative_values=(
-            clip_negative_values
-        ),
-        minimum_concentration=(
-            minimum_concentration
-        ),
     )
-
-    return table
 
 
 class MetaboliteSimulator:
@@ -447,11 +423,11 @@ class MetaboliteSimulator:
 
     Processing order:
 
-        1. Sample concentrations.
+        1. Sample non-negative metabolite concentrations.
         2. Combine PreparedBasis FIDs.
-        3. Apply global phase.
-        4. Apply frequency shift.
-        5. Apply Gaussian/Lorentzian FID broadening.
+        3. Sample total Voigt FWHM and line-shape mixture.
+        4. Apply global phase and normally distributed frequency shift.
+        5. Apply Gaussian/Lorentzian FID broadening in Hz.
         6. Apply acquisition delay through a spectral phase ramp.
         7. Transform to fftshifted spectra.
 
@@ -593,63 +569,52 @@ class MetaboliteSimulator:
             generator=generator,
         )
 
-        frequency_shifts = (
-            self._sample_symmetric_uniform(
-                maximum=(
-                    self.config
-                    .metabolites
-                    .max_frequency_shift_hz
-                ),
-                batch_size=batch_size,
-                generator=generator,
-            )
-        )
-
-        line_broadening_cfg = (
+        frequency_shift_cfg = (
             self.config
             .metabolites
-            .line_broadening
+            .frequency_shift
         )
 
-        total_broadening = (
-            self._sample_uniform(
-                minimum=(
-                    line_broadening_cfg
-                    .minimum
-                ),
-                maximum=(
-                    line_broadening_cfg
-                    .maximum
-                ),
+        frequency_shifts = self._sample_normal(
+            mean=frequency_shift_cfg.mean_hz,
+            std=frequency_shift_cfg.std_hz,
+            shape=(batch_size,),
+            generator=generator,
+        )
+
+        fwhm_cfg = (
+            self.config
+            .metabolites
+            .fwhm
+        )
+
+        voigt_fwhm_hz = (
+            self._sample_positive_normal(
+                mean=fwhm_cfg.mean_hz,
+                std=fwhm_cfg.std_hz,
                 batch_size=batch_size,
                 generator=generator,
             )
         )
 
-        gaussian_fractions = (
+        lorentzian_fractions = (
             self._sample_uniform(
-                minimum=(
-                    line_broadening_cfg
-                    .gaussian_fraction_min
-                ),
-                maximum=(
-                    line_broadening_cfg
-                    .gaussian_fraction_max
-                ),
+                minimum=0.0,
+                maximum=1.0,
                 batch_size=batch_size,
                 generator=generator,
             )
         )
 
-        gaussian_broadening = (
-            gaussian_fractions
-            * total_broadening
+        (
+            lorentzian_fwhm_hz,
+            gaussian_fwhm_hz,
+        ) = self._split_voigt_fwhm(
+            voigt_fwhm_hz=voigt_fwhm_hz,
+            lorentzian_fractions=(
+                lorentzian_fractions
+            ),
         )
-
-        lorentzian_broadening = (
-            1.0
-            - gaussian_fractions
-        ) * total_broadening
 
         affected_fids = (
             self._apply_fid_effects(
@@ -659,14 +624,14 @@ class MetaboliteSimulator:
                 global_phases=(
                     global_phases
                 ),
-                frequency_shifts=(
+                frequency_shifts_hz=(
                     frequency_shifts
                 ),
-                gaussian_broadening=(
-                    gaussian_broadening
+                gaussian_fwhm_hz=(
+                    gaussian_fwhm_hz
                 ),
-                lorentzian_broadening=(
-                    lorentzian_broadening
+                lorentzian_fwhm_hz=(
+                    lorentzian_fwhm_hz
                 ),
             )
         )
@@ -704,17 +669,17 @@ class MetaboliteSimulator:
             frequency_shifts_hz=(
                 frequency_shifts
             ),
-            total_broadening=(
-                total_broadening
+            voigt_fwhm_hz=(
+                voigt_fwhm_hz
             ),
-            gaussian_fractions=(
-                gaussian_fractions
+            lorentzian_fractions=(
+                lorentzian_fractions
             ),
-            gaussian_broadening=(
-                gaussian_broadening
+            gaussian_fwhm_hz=(
+                gaussian_fwhm_hz
             ),
-            lorentzian_broadening=(
-                lorentzian_broadening
+            lorentzian_fwhm_hz=(
+                lorentzian_fwhm_hz
             ),
         )
 
@@ -730,38 +695,85 @@ class MetaboliteSimulator:
         batch_size: int,
         generator: torch.Generator,
     ) -> torch.Tensor:
-        random_values = torch.randn(
-            (
-                batch_size,
-                self.n_basis_components,
-            ),
-            generator=generator,
-            device=self.device,
-            dtype=torch.float32,
+        """
+        Sample independent non-negative metabolite concentrations.
+
+        Negative draws are rejected and sampled again. They are not
+        clipped to zero.
+        """
+        means = (
+            self.sampling_table
+            .means[None, :]
+        )
+
+        stds = (
+            self.sampling_table
+            .stds[None, :]
         )
 
         concentrations = (
-            self.sampling_table
-            .means[None, :]
-            + self.sampling_table
-            .stds[None, :]
-            * random_values
+            means
+            + stds
+            * torch.randn(
+                (
+                    batch_size,
+                    self.n_basis_components,
+                ),
+                generator=generator,
+                device=self.device,
+                dtype=torch.float32,
+            )
         )
 
-        if (
+        enabled_mask = (
             self.sampling_table
-            .clip_negative_values
-        ):
-            concentrations = (
-                concentrations.clamp_min(
-                    self.sampling_table
-                    .minimum_concentration
+            .enabled_mask[None, :]
+            .expand(
+                batch_size,
+                -1,
+            )
+        )
+
+        invalid = (
+            enabled_mask
+            & (concentrations < 0)
+        )
+
+        while torch.any(invalid):
+            invalid_indices = torch.nonzero(
+                invalid,
+                as_tuple=False,
+            )
+
+            component_indices = (
+                invalid_indices[:, 1]
+            )
+
+            redrawn_values = (
+                self.sampling_table
+                .means[component_indices]
+                + self.sampling_table
+                .stds[component_indices]
+                * torch.randn(
+                    (invalid_indices.shape[0],),
+                    generator=generator,
+                    device=self.device,
+                    dtype=torch.float32,
                 )
             )
 
+            concentrations[
+                invalid_indices[:, 0],
+                component_indices,
+            ] = redrawn_values
+
+            invalid = (
+                enabled_mask
+                & (concentrations < 0)
+            )
+
         concentrations = torch.where(
-            self.sampling_table
-            .enabled_mask[None, :],
+            enabled_mask,
             concentrations,
             torch.zeros_like(
                 concentrations
@@ -769,6 +781,89 @@ class MetaboliteSimulator:
         )
 
         return concentrations.contiguous()
+
+    def _sample_normal(
+        self,
+        *,
+        mean: float,
+        std: float,
+        shape: tuple[int, ...],
+        generator: torch.Generator,
+    ) -> torch.Tensor:
+        if not math.isfinite(mean):
+            raise ValueError(
+                "Normal mean must be finite."
+            )
+
+        if (
+            not math.isfinite(std)
+            or std < 0
+        ):
+            raise ValueError(
+                "Normal std must be finite and >= 0."
+            )
+
+        if std == 0:
+            return torch.full(
+                shape,
+                fill_value=float(mean),
+                device=self.device,
+                dtype=torch.float32,
+            )
+
+        return (
+            float(mean)
+            + float(std)
+            * torch.randn(
+                shape,
+                generator=generator,
+                device=self.device,
+                dtype=torch.float32,
+            )
+        )
+
+    def _sample_positive_normal(
+        self,
+        *,
+        mean: float,
+        std: float,
+        batch_size: int,
+        generator: torch.Generator,
+    ) -> torch.Tensor:
+        """
+        Sample from a normal distribution truncated to values > 0
+        using rejection sampling.
+        """
+        if std == 0 and mean <= 0:
+            raise ValueError(
+                "A positive normal sample is impossible when "
+                "std == 0 and mean <= 0."
+            )
+
+        values = self._sample_normal(
+            mean=mean,
+            std=std,
+            shape=(batch_size,),
+            generator=generator,
+        )
+
+        invalid = values <= 0
+
+        while torch.any(invalid):
+            n_invalid = int(
+                invalid.sum().item()
+            )
+
+            values[invalid] = self._sample_normal(
+                mean=mean,
+                std=std,
+                shape=(n_invalid,),
+                generator=generator,
+            )
+
+            invalid = values <= 0
+
+        return values.contiguous()
 
     def _sample_uniform(
         self,
@@ -828,6 +923,101 @@ class MetaboliteSimulator:
             generator=generator,
         )
 
+    def _split_voigt_fwhm(
+        self,
+        *,
+        voigt_fwhm_hz: torch.Tensor,
+        lorentzian_fractions: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Split total Voigt FWHM into Lorentzian and Gaussian FWHM.
+
+        Uses the approximation:
+
+            V = a*L + sqrt(b*L^2 + G^2)
+
+        with:
+
+            a = 0.5346
+            b = 0.2166
+
+        lorentzian_fractions is uniform in [0, 1] and interpolates
+        between the pure Gaussian and pure Lorentzian endpoints.
+        """
+        if torch.any(
+            voigt_fwhm_hz <= 0
+        ):
+            raise ValueError(
+                "voigt_fwhm_hz must be > 0."
+            )
+
+        if torch.any(
+            (lorentzian_fractions < 0)
+            | (lorentzian_fractions > 1)
+        ):
+            raise ValueError(
+                "lorentzian_fractions must be in [0, 1]."
+            )
+
+        a = VOIGT_LORENTZ_COEFFICIENT
+        b = VOIGT_LORENTZ_SQUARED_COEFFICIENT
+
+        maximum_lorentzian_fwhm = (
+            voigt_fwhm_hz
+            / (
+                a
+                + math.sqrt(b)
+            )
+        )
+
+        lorentzian_fwhm_hz = (
+            lorentzian_fractions
+            * maximum_lorentzian_fwhm
+        )
+
+        gaussian_fwhm_squared = (
+            (
+                voigt_fwhm_hz
+                - a
+                * lorentzian_fwhm_hz
+            ).square()
+            - b
+            * lorentzian_fwhm_hz.square()
+        )
+
+        gaussian_fwhm_hz = torch.sqrt(
+            torch.clamp(
+                gaussian_fwhm_squared,
+                min=0.0,
+            )
+        )
+
+        reconstructed_voigt_fwhm = (
+            a
+            * lorentzian_fwhm_hz
+            + torch.sqrt(
+                b
+                * lorentzian_fwhm_hz.square()
+                + gaussian_fwhm_hz.square()
+            )
+        )
+
+        if not torch.allclose(
+            reconstructed_voigt_fwhm,
+            voigt_fwhm_hz,
+            rtol=1e-5,
+            atol=1e-5,
+        ):
+            raise RuntimeError(
+                "Voigt FWHM decomposition failed its "
+                "reconstruction check."
+            )
+
+        return (
+            lorentzian_fwhm_hz.contiguous(),
+            gaussian_fwhm_hz.contiguous(),
+        )
+
     def _apply_acquisition_delay(
         self,
         metabolite_fids: torch.Tensor,
@@ -883,10 +1073,23 @@ class MetaboliteSimulator:
         *,
         metabolite_fids: torch.Tensor,
         global_phases: torch.Tensor,
-        frequency_shifts: torch.Tensor,
-        gaussian_broadening: torch.Tensor,
-        lorentzian_broadening: torch.Tensor,
+        frequency_shifts_hz: torch.Tensor,
+        gaussian_fwhm_hz: torch.Tensor,
+        lorentzian_fwhm_hz: torch.Tensor,
     ) -> torch.Tensor:
+        """
+        Apply phase, frequency shift and Voigt broadening.
+
+        Lorentzian FID decay:
+
+            exp(-pi * L * t)
+
+        Gaussian FID decay:
+
+            exp(-(pi * G * t)^2 / (4*ln(2)))
+
+        where L and G are the Lorentzian and Gaussian FWHM in Hz.
+        """
         time_axis = (
             self.time_axis_seconds[
                 None,
@@ -898,7 +1101,7 @@ class MetaboliteSimulator:
             global_phases[:, None]
             + 2.0
             * math.pi
-            * frequency_shifts[:, None]
+            * frequency_shifts_hz[:, None]
             * time_axis
         )
 
@@ -909,25 +1112,27 @@ class MetaboliteSimulator:
             phase_angles,
         )
 
-        gaussian_decay = (
-            time_axis.square()
-            * gaussian_broadening[
-                :,
-                None,
-            ].square()
+        lorentzian_exponent = (
+            math.pi
+            * lorentzian_fwhm_hz[:, None]
+            * time_axis
         )
 
-        lorentzian_decay = (
-            time_axis.abs()
-            * lorentzian_broadening[
-                :,
-                None,
-            ]
+        gaussian_exponent = (
+            (
+                math.pi
+                * gaussian_fwhm_hz[:, None]
+                * time_axis
+            ).square()
+            / (
+                4.0
+                * math.log(2.0)
+            )
         )
 
         decay_factor = torch.exp(
-            -gaussian_decay
-            - lorentzian_decay
+            -lorentzian_exponent
+            -gaussian_exponent
         )
 
         result = (
@@ -1087,6 +1292,72 @@ class MetaboliteSimulator:
         ):
             raise RuntimeError(
                 "Unexpected concentrations shape."
+            )
+
+        parameter_tensors = {
+            "acquisition_delays_seconds": (
+                result.acquisition_delays_seconds
+            ),
+            "global_phases_radians": (
+                result.global_phases_radians
+            ),
+            "frequency_shifts_hz": (
+                result.frequency_shifts_hz
+            ),
+            "voigt_fwhm_hz": (
+                result.voigt_fwhm_hz
+            ),
+            "lorentzian_fractions": (
+                result.lorentzian_fractions
+            ),
+            "gaussian_fwhm_hz": (
+                result.gaussian_fwhm_hz
+            ),
+            "lorentzian_fwhm_hz": (
+                result.lorentzian_fwhm_hz
+            ),
+        }
+
+        for name, tensor in parameter_tensors.items():
+            if tuple(tensor.shape) != (
+                result.batch_size,
+            ):
+                raise RuntimeError(
+                    f"Unexpected shape for {name}: "
+                    f"{tuple(tensor.shape)}"
+                )
+
+            if not torch.isfinite(tensor).all():
+                raise RuntimeError(
+                    f"{name} contains non-finite values."
+                )
+
+        if torch.any(
+            result.concentrations < 0
+        ):
+            raise RuntimeError(
+                "Metabolite concentrations contain negative values."
+            )
+
+        if torch.any(
+            result.voigt_fwhm_hz <= 0
+        ):
+            raise RuntimeError(
+                "Voigt FWHM contains non-positive values."
+            )
+
+        if torch.any(
+            result.gaussian_fwhm_hz < 0
+        ):
+            raise RuntimeError(
+                "Gaussian FWHM contains negative values."
+            )
+
+        if torch.any(
+            result.lorentzian_fwhm_hz < 0
+        ):
+            raise RuntimeError(
+                "Lorentzian FWHM contains negative values."
             )
 
         if not torch.isfinite(

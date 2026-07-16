@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(frozen=True)
@@ -31,12 +32,14 @@ class AcquisitionCfg:
 
     nmr_frequency_hz: float
 
-    def __post_init__(
-        self,
-    ) -> None:
-        if self.bandwidth_hz <= 0:
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(self.bandwidth_hz)
+            or self.bandwidth_hz <= 0
+        ):
             raise ValueError(
-                "acquisition.bandwidth_hz must be > 0."
+                "acquisition.bandwidth_hz must be "
+                "finite and > 0."
             )
 
         if self.n_timepoints <= 0:
@@ -69,6 +72,15 @@ class AcquisitionCfg:
                 "must be <= acquisition.n_timepoints."
             )
 
+        if (
+            not math.isfinite(self.nmr_frequency_hz)
+            or self.nmr_frequency_hz <= 0
+        ):
+            raise ValueError(
+                "acquisition.nmr_frequency_hz must be "
+                "finite and > 0."
+            )
+
     @property
     def dwell_time_seconds(self) -> float:
         """
@@ -87,31 +99,62 @@ class BasisCfg:
 
 
 @dataclass(frozen=True)
-class LineBroadeningCfg:
+class FrequencyShiftCfg:
     """
-    Parameters of the legacy mixed Gaussian/Lorentzian
-    FID damping.
+    Normal distribution of the global frequency shift in Hz.
 
-    For every simulated spectrum:
-
-        total ~ Uniform(minimum, maximum)
-
-        gaussian_fraction ~ Uniform(
-            gaussian_fraction_min,
-            gaussian_fraction_max,
-        )
-
-        gaussian_coefficient =
-            gaussian_fraction * total
-
-        lorentzian_coefficient =
-            (1 - gaussian_fraction) * total
+    Negative and positive values are allowed.
     """
 
-    minimum: float
-    maximum: float
-    gaussian_fraction_min: float
-    gaussian_fraction_max: float
+    mean_hz: float
+    std_hz: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.mean_hz):
+            raise ValueError(
+                "metabolites.frequency_shift.mean_hz "
+                "must be finite."
+            )
+
+        if (
+            not math.isfinite(self.std_hz)
+            or self.std_hz < 0
+        ):
+            raise ValueError(
+                "metabolites.frequency_shift.std_hz "
+                "must be finite and >= 0."
+            )
+
+
+@dataclass(frozen=True)
+class FWHMCfg:
+    """
+    Normal distribution of the total Voigt FWHM in Hz.
+
+    Non-positive draws are rejected and sampled again.
+    """
+
+    mean_hz: float
+    std_hz: float
+
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(self.mean_hz)
+            or self.mean_hz <= 0
+        ):
+            raise ValueError(
+                "metabolites.fwhm.mean_hz "
+                "must be finite and > 0."
+            )
+
+        if (
+            not math.isfinite(self.std_hz)
+            or self.std_hz < 0
+        ):
+            raise ValueError(
+                "metabolites.fwhm.std_hz "
+                "must be finite and >= 0."
+            )
 
 
 @dataclass(frozen=True)
@@ -124,9 +167,23 @@ class MetaboliteCfg:
     """
 
     config: str
+
     max_acquisition_delay_seconds: float
-    max_frequency_shift_hz: float
-    line_broadening: LineBroadeningCfg
+
+    frequency_shift: FrequencyShiftCfg
+    fwhm: FWHMCfg
+
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(
+                self.max_acquisition_delay_seconds
+            )
+            or self.max_acquisition_delay_seconds < 0
+        ):
+            raise ValueError(
+                "metabolites.max_acquisition_delay_seconds "
+                "must be finite and >= 0."
+            )
 
 
 @dataclass(frozen=True)
@@ -138,27 +195,95 @@ class NoiseCfg:
     snr_min: float
     snr_max: float
 
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(self.snr_min)
+            or self.snr_min <= 0
+        ):
+            raise ValueError(
+                "noise.snr_min must be finite and > 0."
+            )
+
+        if not math.isfinite(self.snr_max):
+            raise ValueError(
+                "noise.snr_max must be finite."
+            )
+
+        if self.snr_max < self.snr_min:
+            raise ValueError(
+                "noise.snr_max must be >= noise.snr_min."
+            )
+
 
 @dataclass(frozen=True)
 class WaterCfg:
     """
-    Water scaling relative to the metabolite-spectrum amplitude.
+    Normal distribution of water scaling relative to the maximum
+    absolute metabolite-spectrum amplitude.
+
+    Non-positive draws are rejected and sampled again.
     """
 
-    scaling_min: float
-    scaling_max: float
+    scaling_mean: float
+    scaling_std: float
+
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(self.scaling_mean)
+            or self.scaling_mean <= 0
+        ):
+            raise ValueError(
+                "water.scaling_mean must be "
+                "finite and > 0."
+            )
+
+        if (
+            not math.isfinite(self.scaling_std)
+            or self.scaling_std < 0
+        ):
+            raise ValueError(
+                "water.scaling_std must be "
+                "finite and >= 0."
+            )
 
 
 @dataclass(frozen=True)
 class LipidCfg:
     """
     Lipid baseline simulation parameters.
+
+    Lipid scaling is always sampled log-uniformly.
     """
 
     n_random_fids: int
     scaling_min: float
     scaling_max: float
-    scaling_distribution: str
+
+    def __post_init__(self) -> None:
+        if self.n_random_fids <= 0:
+            raise ValueError(
+                "lipids.n_random_fids must be > 0."
+            )
+
+        if (
+            not math.isfinite(self.scaling_min)
+            or self.scaling_min <= 0
+        ):
+            raise ValueError(
+                "lipids.scaling_min must be "
+                "finite and > 0."
+            )
+
+        if not math.isfinite(self.scaling_max):
+            raise ValueError(
+                "lipids.scaling_max must be finite."
+            )
+
+        if self.scaling_max < self.scaling_min:
+            raise ValueError(
+                "lipids.scaling_max must be >= "
+                "lipids.scaling_min."
+            )
 
 
 @dataclass(frozen=True)
@@ -183,6 +308,20 @@ class SubjectSamplingCfg:
 
     mixing: str
 
+    def __post_init__(self) -> None:
+        supported_modes = {
+            "same_subject",
+            "separate_water_lipid_subjects",
+            "independent_lipid_fids",
+        }
+
+        if self.mixing not in supported_modes:
+            raise ValueError(
+                "Unsupported subject_sampling.mixing: "
+                f"{self.mixing!r}. Supported modes: "
+                f"{sorted(supported_modes)}"
+            )
+
 
 @dataclass(frozen=True)
 class LipidProjectionCfg:
@@ -190,8 +329,7 @@ class LipidProjectionCfg:
     Optional legacy lipid-projection output.
 
     When enabled, the subject-specific stored operator is applied
-    to the complete simulated spectrum and the projected spectrum
-    is returned in addition to the normal simulator output.
+    to the complete simulated spectrum.
     """
 
     enabled: bool
@@ -200,6 +338,7 @@ class LipidProjectionCfg:
 @dataclass(frozen=True)
 class SimulationConfig:
     version: str
+
     acquisition: AcquisitionCfg
     basis: BasisCfg
     metabolites: MetaboliteCfg

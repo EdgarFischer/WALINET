@@ -156,17 +156,6 @@ class AssembledSpectra:
         return self.mixture_spectra.device
 
 
-def _config_value(
-    value: object,
-) -> str:
-    return str(
-        getattr(
-            value,
-            "value",
-            value,
-        )
-    )
-
 
 def _validate_generator_device(
     *,
@@ -199,35 +188,147 @@ def _validate_generator_device(
         )
 
 
-def _sample_uniform(
+
+def _sample_normal(
     *,
-    minimum: float,
-    maximum: float,
+    mean: float,
+    std: float,
     batch_size: int,
     device: torch.device,
     dtype: torch.dtype,
     generator: torch.Generator,
 ) -> torch.Tensor:
+    """
+    Sample from a normal distribution.
+    """
     if not math.isfinite(
-        minimum
+        mean
     ):
         raise ValueError(
-            "Uniform minimum must be finite."
+            "Normal mean must be finite."
         )
 
-    if not math.isfinite(
-        maximum
+    if (
+        not math.isfinite(
+            std
+        )
+        or std < 0
     ):
         raise ValueError(
-            "Uniform maximum must be finite."
+            "Normal std must be finite and >= 0."
+        )
+
+    if std == 0:
+        return torch.full(
+            (batch_size,),
+            fill_value=mean,
+            device=device,
+            dtype=dtype,
+        )
+
+    return (
+        mean
+        + std
+        * torch.randn(
+            (batch_size,),
+            generator=generator,
+            device=device,
+            dtype=dtype,
+        )
+    )
+
+
+def _sample_positive_normal(
+    *,
+    mean: float,
+    std: float,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    """
+    Sample from a normal distribution truncated to values > 0.
+
+    Non-positive draws are rejected and sampled again. They are
+    not clipped to zero.
+    """
+    if std == 0 and mean <= 0:
+        raise ValueError(
+            "A positive normal sample is impossible when "
+            "std == 0 and mean <= 0."
+        )
+
+    values = _sample_normal(
+        mean=mean,
+        std=std,
+        batch_size=batch_size,
+        device=device,
+        dtype=dtype,
+        generator=generator,
+    )
+
+    invalid = values <= 0
+
+    while torch.any(
+        invalid
+    ):
+        n_invalid = int(
+            invalid.sum().item()
+        )
+
+        values[invalid] = _sample_normal(
+            mean=mean,
+            std=std,
+            batch_size=n_invalid,
+            device=device,
+            dtype=dtype,
+            generator=generator,
+        )
+
+        invalid = values <= 0
+
+    return values.contiguous()
+
+
+def _sample_lipid_scaling(
+    *,
+    config: SimulationConfig,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    """
+    Sample lipid scaling log-uniformly.
+    """
+    minimum = float(
+        config.lipids.scaling_min
+    )
+
+    maximum = float(
+        config.lipids.scaling_max
+    )
+
+    if minimum <= 0:
+        raise ValueError(
+            "Log-uniform lipid scaling requires "
+            "lipids.scaling_min > 0."
+        )
+
+    if maximum <= 0:
+        raise ValueError(
+            "Log-uniform lipid scaling requires "
+            "lipids.scaling_max > 0."
         )
 
     if maximum < minimum:
         raise ValueError(
-            "Uniform maximum must be >= minimum."
+            "lipids.scaling_max must be >= "
+            "lipids.scaling_min."
         )
 
-    if maximum == minimum:
+    if minimum == maximum:
         return torch.full(
             (batch_size,),
             fill_value=minimum,
@@ -242,103 +343,22 @@ def _sample_uniform(
         dtype=dtype,
     )
 
-    return (
+    log_minimum = math.log(
         minimum
+    )
+
+    log_maximum = math.log(
+        maximum
+    )
+
+    return torch.exp(
+        log_minimum
         + (
-            maximum
-            - minimum
+            log_maximum
+            - log_minimum
         )
         * random_values
-    )
-
-
-def _sample_lipid_scaling(
-    *,
-    config: SimulationConfig,
-    batch_size: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    generator: torch.Generator,
-) -> torch.Tensor:
-    minimum = float(
-        config.lipids.scaling_min
-    )
-
-    maximum = float(
-        config.lipids.scaling_max
-    )
-
-    distribution = _config_value(
-        config
-        .lipids
-        .scaling_distribution
-    )
-
-    if maximum < minimum:
-        raise ValueError(
-            "lipids.scaling_max must be >= "
-            "lipids.scaling_min."
-        )
-
-    if distribution == "uniform":
-        return _sample_uniform(
-            minimum=minimum,
-            maximum=maximum,
-            batch_size=batch_size,
-            device=device,
-            dtype=dtype,
-            generator=generator,
-        )
-
-    if distribution == "log_uniform":
-        if minimum <= 0:
-            raise ValueError(
-                "Log-uniform lipid scaling requires "
-                "lipids.scaling_min > 0."
-            )
-
-        if maximum <= 0:
-            raise ValueError(
-                "Log-uniform lipid scaling requires "
-                "lipids.scaling_max > 0."
-            )
-
-        if minimum == maximum:
-            return torch.full(
-                (batch_size,),
-                fill_value=minimum,
-                device=device,
-                dtype=dtype,
-            )
-
-        random_values = torch.rand(
-            (batch_size,),
-            generator=generator,
-            device=device,
-            dtype=dtype,
-        )
-
-        log_minimum = math.log(
-            minimum
-        )
-
-        log_maximum = math.log(
-            maximum
-        )
-
-        return torch.exp(
-            log_minimum
-            + (
-                log_maximum
-                - log_minimum
-            )
-            * random_values
-        )
-
-    raise ValueError(
-        "Unsupported lipid scaling distribution:\n"
-        f"  {distribution!r}"
-    )
+    ).contiguous()
 
 
 def _maximum_absolute_value(
@@ -436,7 +456,8 @@ def assemble_spectra(
     1. Use the clean metabolite spectrum as amplitude reference.
     2. Normalize each sampled water spectrum by its own maximum.
     3. Normalize each mixed lipid spectrum by its own maximum.
-    4. Apply random water and lipid scaling factors.
+    4. Sample positive-normal water scaling and log-uniform
+       lipid scaling, then apply both factors.
     5. Add clean metabolites, water, and lipids.
     6. Add receiver noise to the complete input mixture.
     7. Build the clean water-plus-lipid baseline target.
@@ -568,12 +589,12 @@ def assemble_spectra(
         .dtype
     )
 
-    water_scaling = _sample_uniform(
-        minimum=float(
-            config.water.scaling_min
+    water_scaling = _sample_positive_normal(
+        mean=float(
+            config.water.scaling_mean
         ),
-        maximum=float(
-            config.water.scaling_max
+        std=float(
+            config.water.scaling_std
         ),
         batch_size=batch_size,
         device=device,
