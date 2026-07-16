@@ -92,10 +92,48 @@ class AcquisitionCfg:
 @dataclass(frozen=True)
 class BasisCfg:
     """
-    Path to the LCModel-basis preparation configuration.
+    Path to the prepared LCModel basis library.
+    """
+
+    library: str
+
+    def __post_init__(self) -> None:
+        if not self.library.strip():
+            raise ValueError(
+                "basis.library must not be empty."
+            )
+
+
+@dataclass(frozen=True)
+class MetaboliteProfileCfg:
+    """
+    One metabolite concentration profile.
+
+    config:
+        Path to the profile-specific Metabos YAML.
+
+    probability:
+        Probability of selecting this profile for one complete
+        simulated spectrum.
     """
 
     config: str
+    probability: float
+
+    def __post_init__(self) -> None:
+        if not self.config.strip():
+            raise ValueError(
+                "metabolites.profiles[].config must not be empty."
+            )
+
+        if (
+            not math.isfinite(self.probability)
+            or self.probability <= 0
+        ):
+            raise ValueError(
+                "metabolites.profiles[].probability must be "
+                "finite and > 0."
+            )
 
 
 @dataclass(frozen=True)
@@ -162,11 +200,12 @@ class MetaboliteCfg:
     """
     Metabolite simulation parameters.
 
-    Concentration distributions and basis-component mappings are
-    stored in the separate metabolite configuration.
+    One profile is sampled for each complete simulated spectrum.
+    All metabolite concentrations of that spectrum are then drawn
+    from the selected profile.
     """
 
-    config: str
+    profiles: tuple[MetaboliteProfileCfg, ...]
 
     max_acquisition_delay_seconds: float
 
@@ -174,6 +213,29 @@ class MetaboliteCfg:
     fwhm: FWHMCfg
 
     def __post_init__(self) -> None:
+        if not self.profiles:
+            raise ValueError(
+                "metabolites.profiles must contain at least "
+                "one profile."
+            )
+
+        probability_sum = sum(
+            profile.probability
+            for profile in self.profiles
+        )
+
+        if not math.isclose(
+            probability_sum,
+            1.0,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        ):
+            raise ValueError(
+                "metabolites.profiles probabilities must sum "
+                "to 1. Found: "
+                f"{probability_sum:.12g}"
+            )
+
         if (
             not math.isfinite(
                 self.max_acquisition_delay_seconds

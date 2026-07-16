@@ -25,7 +25,8 @@ VOIGT_LORENTZ_SQUARED_COEFFICIENT = 0.2166
 @dataclass(frozen=True)
 class MetaboliteSamplingTable:
     """
-    Concentration distributions aligned with PreparedBasis.names.
+    One metabolite concentration profile aligned with
+    PreparedBasis.names.
 
     Shapes:
         means:
@@ -37,6 +38,8 @@ class MetaboliteSamplingTable:
         enabled_mask:
             (n_basis_components,)
     """
+
+    config_path: str
 
     basis_names: tuple[str, ...]
 
@@ -79,6 +82,9 @@ class SimulatedMetabolites:
         concentrations:
             (batch_size, n_basis_components)
 
+        profile_indices:
+            (batch_size,)
+
         remaining parameter tensors:
             (batch_size,)
     """
@@ -87,6 +93,7 @@ class SimulatedMetabolites:
     clean_spectra: torch.Tensor
 
     concentrations: torch.Tensor
+    profile_indices: torch.Tensor
 
     acquisition_delays_seconds: torch.Tensor
     global_phases_radians: torch.Tensor
@@ -119,7 +126,7 @@ def _load_yaml_mapping(
 ) -> dict:
     if not path.is_file():
         raise FileNotFoundError(
-            "Metabolite configuration not found:\n"
+            "Metabolite profile configuration not found:\n"
             f"  {path}"
         )
 
@@ -136,7 +143,7 @@ def _load_yaml_mapping(
         dict,
     ):
         raise TypeError(
-            "Metabolite configuration must contain "
+            "Metabolite profile configuration must contain "
             "a YAML mapping."
         )
 
@@ -150,8 +157,8 @@ def load_metabolite_sampling_table(
     device: torch.device | str,
 ) -> MetaboliteSamplingTable:
     """
-    Load Metabos.yaml and align its concentration distributions
-    with PreparedBasis.names.
+    Load one metabolite profile and align its concentration
+    distributions with PreparedBasis.names.
 
     Every enabled metabolite uses a normal distribution. Negative
     concentration draws are rejected and sampled again later by
@@ -187,7 +194,8 @@ def load_metabolite_sampling_table(
     if not independent:
         raise ValueError(
             "Only independent metabolite concentration "
-            "sampling is currently supported."
+            "sampling is currently supported.\n"
+            f"Profile: {path}"
         )
 
     default_distribution = str(
@@ -200,7 +208,8 @@ def load_metabolite_sampling_table(
     if default_distribution != "normal":
         raise ValueError(
             "Only normal concentration distributions "
-            "are supported."
+            "are supported.\n"
+            f"Profile: {path}"
         )
 
     metabolites_raw = raw.get(
@@ -212,8 +221,9 @@ def load_metabolite_sampling_table(
         dict,
     ):
         raise TypeError(
-            "Metabos.yaml must contain a "
-            "'metabolites' mapping."
+            "Metabolite profile must contain a "
+            "'metabolites' mapping.\n"
+            f"Profile: {path}"
         )
 
     n_basis_components = (
@@ -250,7 +260,8 @@ def load_metabolite_sampling_table(
         ):
             raise TypeError(
                 f"Metabolite entry {config_name!r} "
-                "must be a mapping."
+                "must be a mapping.\n"
+                f"Profile: {path}"
             )
 
         enabled = bool(
@@ -277,7 +288,8 @@ def load_metabolite_sampling_table(
         ):
             raise ValueError(
                 f"Enabled metabolite {config_name!r} "
-                "has no basis_component."
+                "has no basis_component.\n"
+                f"Profile: {path}"
             )
 
         basis_component = str(
@@ -291,7 +303,8 @@ def load_metabolite_sampling_table(
             raise ValueError(
                 "Multiple enabled metabolite entries map "
                 "to the same basis component:\n"
-                f"  {basis_component}"
+                f"  {basis_component}\n"
+                f"Profile: {path}"
             )
 
         try:
@@ -305,7 +318,8 @@ def load_metabolite_sampling_table(
             raise KeyError(
                 f"Metabolite {config_name!r} references "
                 "a missing basis component:\n"
-                f"  {basis_component}"
+                f"  {basis_component}\n"
+                f"Profile: {path}"
             ) from error
 
         distribution_raw = (
@@ -320,7 +334,8 @@ def load_metabolite_sampling_table(
         ):
             raise TypeError(
                 f"Metabolite {config_name!r} has no "
-                "valid distribution mapping."
+                "valid distribution mapping.\n"
+                f"Profile: {path}"
             )
 
         distribution_type = str(
@@ -334,7 +349,8 @@ def load_metabolite_sampling_table(
             raise ValueError(
                 f"Metabolite {config_name!r} uses "
                 f"unsupported distribution "
-                f"{distribution_type!r}."
+                f"{distribution_type!r}.\n"
+                f"Profile: {path}"
             )
 
         mean = float(
@@ -348,7 +364,8 @@ def load_metabolite_sampling_table(
         if not np.isfinite(mean):
             raise ValueError(
                 f"Mean for metabolite {config_name!r} "
-                "must be finite."
+                "must be finite.\n"
+                f"Profile: {path}"
             )
 
         if (
@@ -358,14 +375,16 @@ def load_metabolite_sampling_table(
             raise ValueError(
                 f"Standard deviation for metabolite "
                 f"{config_name!r} must be finite "
-                "and >= 0."
+                "and >= 0.\n"
+                f"Profile: {path}"
             )
 
         if std == 0 and mean < 0:
             raise ValueError(
                 f"Metabolite {config_name!r} has mean < 0 "
                 "and std = 0, so a non-negative value can "
-                "never be sampled."
+                "never be sampled.\n"
+                f"Profile: {path}"
             )
 
         means[basis_index] = mean
@@ -386,10 +405,12 @@ def load_metabolite_sampling_table(
 
     if not active_basis_names:
         raise ValueError(
-            "No enabled metabolites were found."
+            "No enabled metabolites were found.\n"
+            f"Profile: {path}"
         )
 
     return MetaboliteSamplingTable(
+        config_path=str(path),
         basis_names=tuple(
             prepared_basis.names
         ),
@@ -423,13 +444,14 @@ class MetaboliteSimulator:
 
     Processing order:
 
-        1. Sample non-negative metabolite concentrations.
-        2. Combine PreparedBasis FIDs.
-        3. Sample total Voigt FWHM and line-shape mixture.
-        4. Apply global phase and normally distributed frequency shift.
-        5. Apply Gaussian/Lorentzian FID broadening in Hz.
-        6. Apply acquisition delay through a spectral phase ramp.
-        7. Transform to fftshifted spectra.
+        1. Sample one metabolite profile per spectrum.
+        2. Sample non-negative concentrations from that profile.
+        3. Combine PreparedBasis FIDs.
+        4. Sample total Voigt FWHM and line-shape mixture.
+        5. Apply global phase and normally distributed frequency shift.
+        6. Apply Gaussian/Lorentzian FID broadening in Hz.
+        7. Apply acquisition delay through a spectral phase ramp.
+        8. Transform to fftshifted spectra.
 
     The simulator has no internal random state. An explicit
     torch.Generator must be supplied for every simulation call.
@@ -470,19 +492,60 @@ class MetaboliteSimulator:
             device=self.device
         ).contiguous()
 
-        self.sampling_table = (
+        self.sampling_tables = tuple(
             load_metabolite_sampling_table(
-                path=(
-                    config
-                    .metabolites
-                    .config
-                ),
-                prepared_basis=(
-                    prepared_basis
-                ),
+                path=profile.config,
+                prepared_basis=prepared_basis,
                 device=self.device,
             )
+            for profile in (
+                config
+                .metabolites
+                .profiles
+            )
         )
+
+        self.profile_config_paths = tuple(
+            table.config_path
+            for table in self.sampling_tables
+        )
+
+        self.profile_probabilities = torch.tensor(
+            [
+                profile.probability
+                for profile in (
+                    config
+                    .metabolites
+                    .profiles
+                )
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        ).contiguous()
+
+        self.profile_means = torch.stack(
+            [
+                table.means
+                for table in self.sampling_tables
+            ],
+            dim=0,
+        ).contiguous()
+
+        self.profile_stds = torch.stack(
+            [
+                table.stds
+                for table in self.sampling_tables
+            ],
+            dim=0,
+        ).contiguous()
+
+        self.profile_enabled_masks = torch.stack(
+            [
+                table.enabled_mask
+                for table in self.sampling_tables
+            ],
+            dim=0,
+        ).contiguous()
 
         self.time_axis_seconds = (
             torch.arange(
@@ -504,6 +567,12 @@ class MetaboliteSimulator:
                 device=self.device,
                 dtype=torch.float32,
             )
+        )
+
+    @property
+    def n_profiles(self) -> int:
+        return len(
+            self.sampling_tables
         )
 
     @property
@@ -536,9 +605,18 @@ class MetaboliteSimulator:
             generator
         )
 
+        profile_indices = (
+            self._sample_profile_indices(
+                batch_size=batch_size,
+                generator=generator,
+            )
+        )
+
         concentrations = (
             self._sample_concentrations(
-                batch_size=batch_size,
+                profile_indices=(
+                    profile_indices
+                ),
                 generator=generator,
             )
         )
@@ -660,6 +738,9 @@ class MetaboliteSimulator:
             concentrations=(
                 concentrations
             ),
+            profile_indices=(
+                profile_indices
+            ),
             acquisition_delays_seconds=(
                 acquisition_delays
             ),
@@ -689,26 +770,62 @@ class MetaboliteSimulator:
 
         return result
 
-    def _sample_concentrations(
+    def _sample_profile_indices(
         self,
         *,
         batch_size: int,
         generator: torch.Generator,
     ) -> torch.Tensor:
         """
-        Sample independent non-negative metabolite concentrations.
+        Sample one metabolite profile index per spectrum.
+        """
+        if self.n_profiles == 1:
+            return torch.zeros(
+                (batch_size,),
+                device=self.device,
+                dtype=torch.long,
+            )
+
+        return torch.multinomial(
+            self.profile_probabilities,
+            num_samples=batch_size,
+            replacement=True,
+            generator=generator,
+        ).contiguous()
+
+    def _sample_concentrations(
+        self,
+        *,
+        profile_indices: torch.Tensor,
+        generator: torch.Generator,
+    ) -> torch.Tensor:
+        """
+        Sample independent non-negative metabolite concentrations
+        from the selected profile of each spectrum.
 
         Negative draws are rejected and sampled again. They are not
         clipped to zero.
         """
-        means = (
-            self.sampling_table
-            .means[None, :]
+        batch_size = int(
+            profile_indices.shape[0]
         )
 
-        stds = (
-            self.sampling_table
-            .stds[None, :]
+        means = self.profile_means.index_select(
+            0,
+            profile_indices,
+        )
+
+        stds = self.profile_stds.index_select(
+            0,
+            profile_indices,
+        )
+
+        enabled_mask = (
+            self.profile_enabled_masks
+            .index_select(
+                0,
+                profile_indices,
+            )
         )
 
         concentrations = (
@@ -725,15 +842,6 @@ class MetaboliteSimulator:
             )
         )
 
-        enabled_mask = (
-            self.sampling_table
-            .enabled_mask[None, :]
-            .expand(
-                batch_size,
-                -1,
-            )
-        )
-
         invalid = (
             enabled_mask
             & (concentrations < 0)
@@ -745,15 +853,23 @@ class MetaboliteSimulator:
                 as_tuple=False,
             )
 
+            batch_indices = (
+                invalid_indices[:, 0]
+            )
+
             component_indices = (
                 invalid_indices[:, 1]
             )
 
             redrawn_values = (
-                self.sampling_table
-                .means[component_indices]
-                + self.sampling_table
-                .stds[component_indices]
+                means[
+                    batch_indices,
+                    component_indices,
+                ]
+                + stds[
+                    batch_indices,
+                    component_indices,
+                ]
                 * torch.randn(
                     (invalid_indices.shape[0],),
                     generator=generator,
@@ -763,7 +879,7 @@ class MetaboliteSimulator:
             )
 
             concentrations[
-                invalid_indices[:, 0],
+                batch_indices,
                 component_indices,
             ] = redrawn_values
 
@@ -1294,6 +1410,34 @@ class MetaboliteSimulator:
                 "Unexpected concentrations shape."
             )
 
+        if tuple(
+            result.profile_indices.shape
+        ) != (
+            result.batch_size,
+        ):
+            raise RuntimeError(
+                "Unexpected profile_indices shape."
+            )
+
+        if result.profile_indices.dtype != torch.long:
+            raise RuntimeError(
+                "profile_indices must use torch.long dtype."
+            )
+
+        if torch.any(
+            result.profile_indices < 0
+        ):
+            raise RuntimeError(
+                "profile_indices contains negative values."
+            )
+
+        if torch.any(
+            result.profile_indices >= self.n_profiles
+        ):
+            raise RuntimeError(
+                "profile_indices contains an out-of-range value."
+            )
+
         parameter_tensors = {
             "acquisition_delays_seconds": (
                 result.acquisition_delays_seconds
@@ -1332,11 +1476,38 @@ class MetaboliteSimulator:
                     f"{name} contains non-finite values."
                 )
 
+        if not torch.isfinite(
+            result.concentrations
+        ).all():
+            raise RuntimeError(
+                "Metabolite concentrations contain "
+                "non-finite values."
+            )
+
         if torch.any(
             result.concentrations < 0
         ):
             raise RuntimeError(
                 "Metabolite concentrations contain negative values."
+            )
+
+        selected_enabled_masks = (
+            self.profile_enabled_masks
+            .index_select(
+                0,
+                result.profile_indices,
+            )
+        )
+
+        if torch.any(
+            result.concentrations[
+                ~selected_enabled_masks
+            ]
+            != 0
+        ):
+            raise RuntimeError(
+                "Disabled metabolites contain non-zero "
+                "concentrations."
             )
 
         if torch.any(

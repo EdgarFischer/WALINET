@@ -12,6 +12,7 @@ from .schema_simulation import (
     LipidCfg,
     LipidProjectionCfg,
     MetaboliteCfg,
+    MetaboliteProfileCfg,
     NoiseCfg,
     SimulationConfig,
     SubjectSamplingCfg,
@@ -66,15 +67,26 @@ def validate_simulation_config(
             "version must not be empty."
         )
 
-    if not cfg.basis.config.strip():
-        raise ValueError(
-            "basis.config must not be empty."
+    basis_library = Path(
+        cfg.basis.library
+    )
+
+    if not basis_library.is_file():
+        raise FileNotFoundError(
+            "Prepared basis library not found:\n"
+            f"  {basis_library}"
         )
 
-    if not cfg.metabolites.config.strip():
-        raise ValueError(
-            "metabolites.config must not be empty."
+    for profile in cfg.metabolites.profiles:
+        profile_path = Path(
+            profile.config
         )
+
+        if not profile_path.is_file():
+            raise FileNotFoundError(
+                "Metabolite profile configuration not found:\n"
+                f"  {profile_path}"
+            )
 
     # The stored subject-specific projection operator is only
     # unambiguous in the exact legacy-style subject association.
@@ -141,19 +153,63 @@ def build_simulation_config(
     basis_raw = raw["basis"]
 
     basis = BasisCfg(
-        config=_resolve_path(
+        library=_resolve_path(
             str(
-                basis_raw["config"]
+                basis_raw["library"]
             ),
             config_dir,
         ),
     )
 
     # ---------------------------------------------------------
-    # Metabolites
+    # Metabolite profiles
     # ---------------------------------------------------------
     metabolites_raw = raw["metabolites"]
 
+    profiles_raw = metabolites_raw[
+        "profiles"
+    ]
+
+    if not isinstance(
+        profiles_raw,
+        list,
+    ):
+        raise TypeError(
+            "metabolites.profiles must be a list."
+        )
+
+    profiles: list[MetaboliteProfileCfg] = []
+
+    for profile_index, profile_raw in enumerate(
+        profiles_raw
+    ):
+        if not isinstance(
+            profile_raw,
+            dict,
+        ):
+            raise TypeError(
+                "Each metabolites.profiles entry must be "
+                "a mapping. Invalid entry at index "
+                f"{profile_index}."
+            )
+
+        profiles.append(
+            MetaboliteProfileCfg(
+                config=_resolve_path(
+                    str(
+                        profile_raw["config"]
+                    ),
+                    config_dir,
+                ),
+                probability=float(
+                    profile_raw["probability"]
+                ),
+            )
+        )
+
+    # ---------------------------------------------------------
+    # Remaining metabolite parameters
+    # ---------------------------------------------------------
     frequency_shift_raw = metabolites_raw[
         "frequency_shift"
     ]
@@ -179,11 +235,8 @@ def build_simulation_config(
     )
 
     metabolites = MetaboliteCfg(
-        config=_resolve_path(
-            str(
-                metabolites_raw["config"]
-            ),
-            config_dir,
+        profiles=tuple(
+            profiles
         ),
         max_acquisition_delay_seconds=float(
             metabolites_raw.get(

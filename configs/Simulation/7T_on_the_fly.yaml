@@ -1,4 +1,4 @@
-version: "simulation_v3"
+version: "simulation_v4"
 
 acquisition:
   bandwidth_hz: 2778.0
@@ -14,27 +14,23 @@ acquisition:
 
 
 basis:
-  config: "Basis_7T.yaml"
+  library: "../../MetabModes/LCModelBasis/processed/7T_basis_tumor_v1.h5"
 
 
 metabolites:
-  config: "Metabos.yaml"
+  profiles:
+    - config: "Metabos_healthy.yaml"
+      probability: 1.0
 
-  # Sampled uniformly from
-  # [-max_acquisition_delay_seconds,
-  #  +max_acquisition_delay_seconds].
   max_acquisition_delay_seconds: 0.002
 
-  # Ordinary normal distribution.
   frequency_shift:
-    mean_hz: 0
-    std_hz: 5
+    mean_hz: 0.0
+    std_hz: 5.0
 
-  # Normal distribution with rejection of values <= 0.
-  # This is the target total Voigt FWHM.
   fwhm:
-    mean_hz: 15
-    std_hz: 8
+    mean_hz: 15.0
+    std_hz: 8.0
 
 
 noise:
@@ -43,18 +39,13 @@ noise:
 
 
 water:
-  # Normal distribution with rejection of values <= 0.
-  # Directly represents:
-  # max|water| / max|metabolites|
-  scaling_mean: 15
-  scaling_std: 25
+  scaling_mean: 15.0
+  scaling_std: 25.0
+
 
 lipids:
   n_random_fids: 10
 
-  # Always sampled log-uniformly.
-  # Directly represents:
-  # max|lipids| / max|metabolites|
   scaling_min: 0.1
   scaling_max: 70.0
 

@@ -15,7 +15,7 @@ data:
   normalization: "max_abs"
 
   on_the_fly:
-    simulation_config: "Simulation/7T_on_the_fly.yaml"
+    simulation_config: "../Simulation/7T_on_the_fly.yaml"
 
     resources:
       version: "water_lipid_v1"
