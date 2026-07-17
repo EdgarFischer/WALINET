@@ -11,15 +11,15 @@ import matplotlib.pyplot as plt
 BASE_DIR = Path("/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/public/hfish/walinet/data/7T/NoB0Correction")
 
 SUBJECTS = [
-    #"MS_210",
+    "MS_180",
     #"MS_230",
     #"MS_250",
-    "MS_260",
-    "MS_280",
-    "MS_320",
-    "MS_340",
-    "MS_400",
-    "MS_430",
+    # "MS_260",
+    # "MS_280",
+    # "MS_320",
+    # "MS_340",
+    # "MS_400",
+    # "MS_430",
 ]
 
 

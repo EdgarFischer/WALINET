@@ -1,69 +1,113 @@
 import pytest
 import torch
 
-from walinet.training.training import forward_model
+from walinet.training.training import (
+    forward_model,
+)
 
 
-class DummyYNet:
-    def __call__(self, x, y):
-        return x + y
+class DummyYNet(torch.nn.Module):
+    def forward(
+        self,
+        network_input: torch.Tensor,
+        network_l2: torch.Tensor,
+    ) -> torch.Tensor:
+        return network_input + network_l2
 
 
-class DummyUNet:
-    def __call__(self, x):
-        return 2 * x
+class DummyUNet(torch.nn.Module):
+    def forward(
+        self,
+        network_input: torch.Tensor,
+    ) -> torch.Tensor:
+        return 2 * network_input
 
 
-def test_forward_model_dispatches_to_ynet():
-    x = torch.ones(1, 2, 8)
-    y = 3 * torch.ones(1, 2, 8)
-
-    out = forward_model(
-        model=DummyYNet(),
-        spectra_all=x,
-        spectra_idlip=y,
-        params={"architecture": "ynet"},
+def test_forward_model_dispatches_to_ynet() -> None:
+    network_input = torch.ones(
+        1,
+        2,
+        8,
     )
 
-    assert torch.allclose(out, x + y)
+    network_l2 = 3 * torch.ones(
+        1,
+        2,
+        8,
+    )
+
+    output = forward_model(
+        model=DummyYNet(),
+        network_input=network_input,
+        network_l2=network_l2,
+        architecture="ynet",
+    )
+
+    torch.testing.assert_close(
+        output,
+        network_input + network_l2,
+    )
 
 
-def test_forward_model_dispatches_to_unet():
-    x = torch.ones(1, 2, 8)
-    y = 3 * torch.ones(1, 2, 8)
+def test_forward_model_dispatches_to_unet() -> None:
+    network_input = torch.ones(
+        1,
+        2,
+        8,
+    )
 
-    out = forward_model(
+    network_l2 = 3 * torch.ones(
+        1,
+        2,
+        8,
+    )
+
+    output = forward_model(
         model=DummyUNet(),
-        spectra_all=x,
-        spectra_idlip=y,
-        params={"architecture": "unet"},
+        network_input=network_input,
+        network_l2=network_l2,
+        architecture="unet",
     )
 
-    assert torch.allclose(out, 2 * x)
-
-
-def test_forward_model_defaults_to_ynet_for_legacy_params():
-    x = torch.ones(1, 2, 8)
-    y = 3 * torch.ones(1, 2, 8)
-
-    out = forward_model(
-        model=DummyYNet(),
-        spectra_all=x,
-        spectra_idlip=y,
-        params={},
+    torch.testing.assert_close(
+        output,
+        2 * network_input,
     )
 
-    assert torch.allclose(out, x + y)
+
+def test_forward_model_ynet_requires_l2_input() -> None:
+    network_input = torch.ones(
+        1,
+        2,
+        8,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="YNet requires network_l2",
+    ):
+        forward_model(
+            model=DummyYNet(),
+            network_input=network_input,
+            network_l2=None,
+            architecture="ynet",
+        )
 
 
-def test_forward_model_rejects_unknown_architecture():
-    x = torch.ones(1, 2, 8)
-    y = 3 * torch.ones(1, 2, 8)
+def test_forward_model_rejects_unknown_architecture() -> None:
+    network_input = torch.ones(
+        1,
+        2,
+        8,
+    )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match="Unknown architecture",
+    ):
         forward_model(
             model=DummyUNet(),
-            spectra_all=x,
-            spectra_idlip=y,
-            params={"architecture": "ymodel"},
+            network_input=network_input,
+            network_l2=None,
+            architecture="ymodel",
         )
