@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import argparse
 import hashlib
 import os
 import random
 import shutil
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -57,17 +57,7 @@ def prepare_model_folder(
                 "output.overwrite: true."
             )
 
-        shutil.rmtree(
-            model_dir
-        )
-
-    (
-        model_dir
-        / "predictions"
-    ).mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+        shutil.rmtree(model_dir)
 
     (
         model_dir
@@ -86,18 +76,13 @@ def resolve_existing_file(
     """
     Resolve a potentially relative file path.
 
-    Relative paths are first interpreted relative to the config
-    containing the path. As a fallback, they are interpreted
-    relative to the project root.
+    Relative paths are first interpreted relative to `relative_to`.
+    As a fallback, they are interpreted relative to the project root.
     """
-    path = Path(
-        path_value
-    ).expanduser()
+    path = Path(path_value).expanduser()
 
     if path.is_absolute():
-        candidates = [
-            path,
-        ]
+        candidates = [path]
     else:
         candidates = [
             relative_to / path,
@@ -108,9 +93,7 @@ def resolve_existing_file(
 
     for candidate in candidates:
         resolved = candidate.resolve()
-        checked_paths.append(
-            resolved
-        )
+        checked_paths.append(resolved)
 
         if resolved.is_file():
             return resolved
@@ -126,55 +109,24 @@ def resolve_existing_file(
     )
 
 
-def resolve_output_base_dir(
-    path_value: str | Path,
-) -> Path:
-    """
-    Resolve the configured output base directory relative to the
-    project root when it is not absolute.
-    """
-    path = Path(
-        path_value
-    ).expanduser()
-
-    if not path.is_absolute():
-        path = ROOT / path
-
-    return path.resolve()
-
-
-def iter_string_values(
-    value,
-):
+def iter_string_values(value):
     """
     Recursively yield all strings contained in dictionaries,
     sequences, and nested configuration structures.
     """
-    if isinstance(
-        value,
-        dict,
-    ):
+    if isinstance(value, dict):
         for nested_value in value.values():
             yield from iter_string_values(
                 nested_value
             )
 
-    elif isinstance(
-        value,
-        (
-            list,
-            tuple,
-        ),
-    ):
+    elif isinstance(value, (list, tuple)):
         for nested_value in value:
             yield from iter_string_values(
                 nested_value
             )
 
-    elif isinstance(
-        value,
-        str,
-    ):
+    elif isinstance(value, str):
         yield value
 
 
@@ -187,20 +139,16 @@ def resolve_yaml_reference(
     Resolve a YAML-looking string when it points to an existing
     file.
 
-    Non-existing strings are returned as None so ordinary YAML
-    values ending in similar text do not break the snapshot.
+    Non-existing strings are returned as None so ordinary values
+    do not break the configuration snapshot.
     """
-    path = Path(
-        path_value
-    ).expanduser()
+    path = Path(path_value).expanduser()
 
     if path.suffix.lower() not in YAML_SUFFIXES:
         return None
 
     if path.is_absolute():
-        candidates = [
-            path,
-        ]
+        candidates = [path]
     else:
         candidates = [
             source_config_dir / path,
@@ -225,39 +173,30 @@ def discover_yaml_dependencies(
     list[tuple[Path, str]],
 ]:
     """
-    Recursively discover YAML files referenced by another YAML
-    file.
+    Recursively discover YAML files referenced by another YAML file.
 
     This captures, for example:
 
-    - the metabolite-distribution YAML,
-    - nested profile YAMLs,
-    - any further YAML configuration dependencies.
+    - metabolite-distribution YAML files,
+    - nested profile YAML files,
+    - further YAML configuration dependencies.
     """
-    entry_config = (
-        entry_config.resolve()
-    )
+    entry_config = entry_config.resolve()
 
     discovered: set[Path] = set()
-    unresolved: list[
-        tuple[Path, str]
-    ] = []
+    unresolved: list[tuple[Path, str]] = []
 
     queue: list[Path] = [
         entry_config,
     ]
 
     while queue:
-        current_config = (
-            queue.pop(0).resolve()
-        )
+        current_config = queue.pop(0).resolve()
 
         if current_config in discovered:
             continue
 
-        discovered.add(
-            current_config
-        )
+        discovered.add(current_config)
 
         config_data = load_yaml_func(
             current_config
@@ -280,9 +219,7 @@ def discover_yaml_dependencies(
 
             dependency = resolve_yaml_reference(
                 string_value,
-                source_config_dir=(
-                    current_config.parent
-                ),
+                source_config_dir=current_config.parent,
             )
 
             if dependency is None:
@@ -295,14 +232,9 @@ def discover_yaml_dependencies(
                 continue
 
             if dependency not in discovered:
-                queue.append(
-                    dependency
-                )
+                queue.append(dependency)
 
-    return (
-        discovered,
-        unresolved,
-    )
+    return discovered, unresolved
 
 
 def dependency_destination_path(
@@ -321,16 +253,12 @@ def dependency_destination_path(
 
     for root in possible_roots:
         try:
-            return source.relative_to(
-                root
-            )
+            return source.relative_to(root)
         except ValueError:
             pass
 
     digest = hashlib.sha1(
-        str(source).encode(
-            "utf-8"
-        )
+        str(source).encode("utf-8")
     ).hexdigest()[:10]
 
     return Path(
@@ -351,10 +279,9 @@ def snapshot_reproducibility_configs(
 
     The copied files include:
 
-    - exact training configuration,
-    - exact simulation configuration,
-    - recursively referenced YAML dependencies such as the
-      metabolite-distribution configuration,
+    - the exact training configuration,
+    - the exact simulation configuration,
+    - recursively referenced YAML dependencies,
     - a manifest mapping original paths to copied paths.
     """
     configs_dir = (
@@ -398,9 +325,7 @@ def snapshot_reproducibility_configs(
         dependencies,
         unresolved_references,
     ) = discover_yaml_dependencies(
-        entry_config=(
-            simulation_config_path
-        ),
+        entry_config=simulation_config_path,
         load_yaml_func=load_yaml_func,
     )
 
@@ -422,9 +347,7 @@ def snapshot_reproducibility_configs(
         / "dependencies"
     )
 
-    for dependency in sorted(
-        dependencies
-    ):
+    for dependency in sorted(dependencies):
         if dependency == simulation_config_path:
             continue
 
@@ -432,8 +355,7 @@ def snapshot_reproducibility_configs(
             dependency_destination_path(
                 source=dependency,
                 simulation_config_dir=(
-                    simulation_config_path
-                    .parent
+                    simulation_config_path.parent
                 ),
             )
         )
@@ -465,9 +387,9 @@ def snapshot_reproducibility_configs(
         / "manifest.txt"
     )
 
-    with open(
-        manifest_path,
+    with manifest_path.open(
         "w",
+        encoding="utf-8",
     ) as manifest:
         manifest.write(
             "WALINET configuration snapshot\n"
@@ -544,9 +466,9 @@ def write_run_summary(
         / "run_summary.txt"
     )
 
-    with open(
-        summary_path,
+    with summary_path.open(
         "w",
+        encoding="utf-8",
     ) as file:
         file.write(
             f"run_name: {cfg.run.name}\n"
@@ -557,9 +479,26 @@ def write_run_summary(
         file.write(
             f"configured_gpu: {cfg.run.gpu}\n"
         )
+
         file.write(
             f"architecture: {cfg.model.architecture}\n"
         )
+        file.write(
+            f"n_layers: {cfg.model.n_layers}\n"
+        )
+        file.write(
+            f"n_filters: {cfg.model.n_filters}\n"
+        )
+        file.write(
+            f"in_channels: {cfg.model.in_channels}\n"
+        )
+        file.write(
+            f"out_channels: {cfg.model.out_channels}\n"
+        )
+        file.write(
+            f"dropout: {cfg.model.dropout}\n"
+        )
+
         file.write(
             f"epochs: {cfg.training.epochs}\n"
         )
@@ -570,22 +509,42 @@ def write_run_summary(
             f"n_batches: {cfg.training.n_batches}\n"
         )
         file.write(
+            "spectra_per_epoch: "
+            f"{cfg.training.batch_size * cfg.training.n_batches}\n"
+        )
+
+        file.write(
             f"learning_rate: {cfg.optim.lr}\n"
         )
         file.write(
-            f"validation_mode: {cfg.validation.mode}\n"
+            "scheduler_milestones: "
+            f"{list(cfg.scheduler.milestones)}\n"
         )
+        file.write(
+            f"scheduler_gamma: {cfg.scheduler.gamma}\n"
+        )
+
         file.write(
             f"validation_seed: {cfg.validation.seed}\n"
         )
         file.write(
-            f"validation_n_spectra: "
+            "validation_n_spectra: "
             f"{cfg.validation.n_spectra}\n"
         )
         file.write(
-            f"validation_batch_size: "
+            "validation_batch_size: "
             f"{cfg.validation.batch_size}\n"
         )
+
+        file.write(
+            "train_subjects: "
+            f"{cfg.data.train_subjects}\n"
+        )
+        file.write(
+            "validation_subjects: "
+            f"{cfg.data.val_subjects}\n"
+        )
+
         file.write(
             f"training_config: {config_path}\n"
         )
@@ -593,6 +552,98 @@ def write_run_summary(
             "simulation_config: "
             f"{simulation_config_path}\n"
         )
+
+        file.write(
+            f"warm_start: {cfg.checkpoint.preload}\n"
+        )
+
+        if cfg.checkpoint.preload:
+            file.write(
+                "warm_start_model: "
+                f"{cfg.checkpoint.preload_model}\n"
+            )
+
+
+def build_model(
+    *,
+    architecture: str,
+    cfg,
+    device,
+):
+    """
+    Construct the configured UNet or YNet.
+    """
+    from walinet.model.model import (
+        uModel,
+        yModel,
+    )
+
+    model_arguments = {
+        "nLayers": cfg.model.n_layers,
+        "nFilters": cfg.model.n_filters,
+        "dropout": cfg.model.dropout,
+        "in_channels": cfg.model.in_channels,
+        "out_channels": cfg.model.out_channels,
+    }
+
+    if architecture == "unet":
+        model = uModel(
+            **model_arguments
+        )
+
+    elif architecture == "ynet":
+        model = yModel(
+            **model_arguments
+        )
+
+    else:
+        raise ValueError(
+            f"Unknown architecture {architecture!r}. "
+            "Use 'unet' or 'ynet'."
+        )
+
+    return model.to(device)
+
+
+def load_warm_start_weights(
+    *,
+    model,
+    checkpoint_cfg,
+    device,
+) -> None:
+    """
+    Load model weights from an existing model directory.
+
+    Optimizer state, scheduler state, and epoch number are not
+    restored.
+    """
+    if not checkpoint_cfg.preload:
+        return
+
+    checkpoint_path = (
+        Path(checkpoint_cfg.preload_model)
+        / "model_last.pt"
+    )
+
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(
+            "Warm-start checkpoint does not exist:\n"
+            f"  {checkpoint_path}"
+        )
+
+    print(
+        f"Loading model weights: {checkpoint_path}"
+    )
+
+    model_state = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=True,
+    )
+
+    model.load_state_dict(
+        model_state
+    )
 
 
 if __name__ == "__main__":
@@ -603,15 +654,13 @@ if __name__ == "__main__":
         str(SRC),
     )
 
-    os.chdir(
-        ROOT
-    )
+    os.chdir(ROOT)
 
-    from walinet.config.load import (
-        load_yaml,
-    )
     from walinet.config.build import (
         build_config,
+    )
+    from walinet.config.load import (
+        load_yaml,
     )
 
     config_path = resolve_existing_file(
@@ -619,9 +668,7 @@ if __name__ == "__main__":
         relative_to=ROOT,
     )
 
-    config_dir = (
-        config_path.parent
-    )
+    config_dir = config_path.parent
 
     raw_config = load_yaml(
         config_path
@@ -632,55 +679,15 @@ if __name__ == "__main__":
         config_dir=config_dir,
     )
 
-    if cfg.data.source != "on_the_fly":
-        raise NotImplementedError(
-            "The new trainer currently supports only "
-            "data.source == 'on_the_fly'."
-        )
+    simulation_config_path = Path(
+        cfg.data.simulation_config
+    ).resolve()
 
-    if cfg.data.on_the_fly is None:
-        raise ValueError(
-            "data.on_the_fly must be configured when "
-            "data.source == 'on_the_fly'."
+    if not simulation_config_path.is_file():
+        raise FileNotFoundError(
+            "Simulation configuration does not exist:\n"
+            f"  {simulation_config_path}"
         )
-
-    if cfg.validation.mode != "fixed_on_start":
-        raise NotImplementedError(
-            "The new trainer currently supports only "
-            "validation.mode == 'fixed_on_start'."
-        )
-
-    if cfg.training.n_batches <= 0:
-        raise ValueError(
-            "training.n_batches must be > 0 for on-the-fly "
-            "training."
-        )
-
-    if cfg.training.batch_size <= 0:
-        raise ValueError(
-            "training.batch_size must be > 0."
-        )
-
-    if cfg.validation.n_spectra <= 0:
-        raise ValueError(
-            "validation.n_spectra must be > 0."
-        )
-
-    if cfg.validation.batch_size <= 0:
-        raise ValueError(
-            "validation.batch_size must be > 0."
-        )
-
-    simulation_config_path = (
-        resolve_existing_file(
-            cfg.data
-            .on_the_fly
-            .simulation_config,
-            relative_to=config_dir,
-        )
-    )
-
-    # This must happen before importing torch.
 
     import torch
     import torch.nn as nn
@@ -695,18 +702,13 @@ if __name__ == "__main__":
         train_one_epoch,
         validate_one_epoch,
     )
-
-    from walinet.model.model import (
-        yModel,
-        uModel,
-    )
-
     from walinet.training_data.build_simulation_system import (
         build_simulation_system,
     )
 
-    # Global random seeds for model initialization and any
-    # remaining Python/NumPy randomness.
+    # ---------------------------------------------------------
+    # Reproducibility
+    # ---------------------------------------------------------
     random.seed(
         cfg.run.seed
     )
@@ -724,24 +726,18 @@ if __name__ == "__main__":
             cfg.run.seed
         )
 
-    architecture = str(
+    architecture = (
         cfg.model.architecture
-    ).lower()
-
-    if architecture not in {
-        "ynet",
-        "unet",
-    }:
-        raise ValueError(
-            f"Unknown architecture {architecture!r}. "
-            "Use 'ynet' or 'unet'."
-        )
-
-    output_base_dir = (
-        resolve_output_base_dir(
-            cfg.output.base_dir
-        )
+        .strip()
+        .lower()
     )
+
+    # ---------------------------------------------------------
+    # Output directory and configuration snapshot
+    # ---------------------------------------------------------
+    output_base_dir = Path(
+        cfg.output.base_dir
+    ).resolve()
 
     model_dir = (
         output_base_dir
@@ -756,18 +752,14 @@ if __name__ == "__main__":
     snapshot_reproducibility_configs(
         model_dir=model_dir,
         training_config_path=config_path,
-        simulation_config_path=(
-            simulation_config_path
-        ),
+        simulation_config_path=simulation_config_path,
         load_yaml_func=load_yaml,
     )
 
     write_run_summary(
         model_dir=model_dir,
         config_path=config_path,
-        simulation_config_path=(
-            simulation_config_path
-        ),
+        simulation_config_path=simulation_config_path,
         cfg=cfg,
     )
 
@@ -778,20 +770,22 @@ if __name__ == "__main__":
         f"Model dir: {model_dir}"
     )
 
-    simulation_system = (
-        build_simulation_system(
-            config_path
-        )
+    # ---------------------------------------------------------
+    # Simulation system
+    # ---------------------------------------------------------
+    simulation_system = build_simulation_system(
+        config_path
     )
 
     train_simulator = (
-        simulation_system
-        .train_simulator
+        simulation_system.train_simulator
     )
 
-    device = torch.device(
-        train_simulator.device
+    validation_simulator = (
+        simulation_system.validation_simulator
     )
+
+    device = simulation_system.device
 
     print(
         f"Using device: {device}"
@@ -800,87 +794,35 @@ if __name__ == "__main__":
         "Simulator ready:"
     )
     print(
-        f"  timepoints: "
+        "  timepoints: "
         f"{train_simulator.n_timepoints}"
     )
     print(
-        f"  device:     "
-        f"{train_simulator.device}"
+        f"  device:     {device}"
     )
 
-    if architecture == "ynet":
-        model = yModel(
-            nLayers=(
-                cfg.model.n_layers
-            ),
-            nFilters=(
-                cfg.model.n_filters
-            ),
-            dropout=(
-                cfg.model.dropout
-            ),
-            in_channels=(
-                cfg.model.in_channels
-            ),
-            out_channels=(
-                cfg.model.out_channels
-            ),
-        ).to(
-            device
-        )
-
-    else:
-        model = uModel(
-            nLayers=(
-                cfg.model.n_layers
-            ),
-            nFilters=(
-                cfg.model.n_filters
-            ),
-            dropout=(
-                cfg.model.dropout
-            ),
-            in_channels=(
-                cfg.model.in_channels
-            ),
-            out_channels=(
-                cfg.model.out_channels
-            ),
-        ).to(
-            device
-        )
+    # ---------------------------------------------------------
+    # Model
+    # ---------------------------------------------------------
+    model = build_model(
+        architecture=architecture,
+        cfg=cfg,
+        device=device,
+    )
 
     print(
         f"Using architecture: {architecture}"
     )
 
-    if cfg.checkpoint.preload:
-        preload_path = (
-            output_base_dir
-            / cfg.checkpoint.preload_model
-            / "model_last.pt"
-        )
+    load_warm_start_weights(
+        model=model,
+        checkpoint_cfg=cfg.checkpoint,
+        device=device,
+    )
 
-        if not preload_path.is_file():
-            raise FileNotFoundError(
-                "Preload checkpoint does not exist:\n"
-                f"  {preload_path}"
-            )
-
-        print(
-            f"Loading model: {preload_path}"
-        )
-
-        model_state = torch.load(
-            preload_path,
-            map_location=device,
-            weights_only=True,
-        )
-
-        model.load_state_dict(
-            model_state
-        )
-
+    # ---------------------------------------------------------
+    # Optimization
+    # ---------------------------------------------------------
     loss_func = nn.MSELoss()
 
     optimizer = Adam(
@@ -896,225 +838,193 @@ if __name__ == "__main__":
         gamma=cfg.scheduler.gamma,
     )
 
-    if cfg.training.enabled:
-        train_generator = torch.Generator(
-            device=device
+    # ---------------------------------------------------------
+    # Random generators
+    # ---------------------------------------------------------
+    train_generator = torch.Generator(
+        device=device
+    )
+
+    train_generator.manual_seed(
+        int(cfg.run.seed)
+    )
+
+    validation_generator = torch.Generator(
+        device=device
+    )
+
+    validation_generator.manual_seed(
+        int(cfg.validation.seed)
+    )
+
+    # ---------------------------------------------------------
+    # Fixed validation data
+    # ---------------------------------------------------------
+    validation_batches = (
+        create_fixed_validation_batches(
+            simulator=validation_simulator,
+            generator=validation_generator,
+            n_spectra=cfg.validation.n_spectra,
+            batch_size=cfg.validation.batch_size,
+            architecture=architecture,
+            verbose=cfg.training.verbose,
+        )
+    )
+
+    print(
+        "Training configuration:"
+    )
+    print(
+        "  epochs:                "
+        f"{cfg.training.epochs}"
+    )
+    print(
+        "  batches per epoch:     "
+        f"{cfg.training.n_batches}"
+    )
+    print(
+        "  training batch size:   "
+        f"{cfg.training.batch_size}"
+    )
+    print(
+        "  spectra per epoch:     "
+        f"{cfg.training.n_batches * cfg.training.batch_size}"
+    )
+    print(
+        "  validation spectra:    "
+        f"{cfg.validation.n_spectra}"
+    )
+    print(
+        "  validation batch size: "
+        f"{cfg.validation.batch_size}"
+    )
+    print(
+        "  validation batches:    "
+        f"{len(validation_batches)}"
+    )
+
+    # ---------------------------------------------------------
+    # Loss log
+    # ---------------------------------------------------------
+    loss_path = (
+        model_dir
+        / "loss.txt"
+    )
+
+    with loss_path.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
+        file.write(
+            "Epoch; Epoch Loss; Validation Loss; "
+            "Learning Rate;\n"
         )
 
-        train_generator.manual_seed(
-            int(
-                cfg.run.seed
-            )
+    # ---------------------------------------------------------
+    # Training
+    # ---------------------------------------------------------
+    best_loss: float | None = None
+
+    for epoch in range(
+        cfg.training.epochs
+    ):
+        model, train_loss = train_one_epoch(
+            model=model,
+            simulator=train_simulator,
+            generator=train_generator,
+            optimizer=optimizer,
+            loss_func=loss_func,
+            architecture=architecture,
+            batch_size=cfg.training.batch_size,
+            n_batches=cfg.training.n_batches,
+            verbose=cfg.training.verbose,
+            device=device,
+            epoch=epoch,
         )
 
-        validation_generator = (
-            torch.Generator(
-                device=device
-            )
+        val_loss = validate_one_epoch(
+            model=model,
+            validation_batches=validation_batches,
+            loss_func=loss_func,
+            architecture=architecture,
+            verbose=cfg.training.verbose,
+            device=device,
+            epoch=epoch,
         )
 
-        validation_generator.manual_seed(
-            int(
-                cfg.validation.seed
-            )
+        learning_rate = (
+            scheduler.get_last_lr()[0]
         )
 
-        validation_batches = (
-            create_fixed_validation_batches(
-                simulator=train_simulator,
-                generator=(
-                    validation_generator
-                ),
-                n_spectra=(
-                    cfg.validation
-                    .n_spectra
-                ),
-                batch_size=(
-                    cfg.validation
-                    .batch_size
-                ),
-                architecture=architecture,
-                verbose=(
-                    cfg.training.verbose
-                ),
-            )
+        torch.save(
+            model.state_dict(),
+            model_dir / "model_last.pt",
         )
 
-        print(
-            "Training configuration:"
-        )
-        print(
-            f"  epochs:                "
-            f"{cfg.training.epochs}"
-        )
-        print(
-            f"  batches per epoch:     "
-            f"{cfg.training.n_batches}"
-        )
-        print(
-            f"  training batch size:   "
-            f"{cfg.training.batch_size}"
-        )
-        print(
-            f"  spectra per epoch:     "
-            f"{cfg.training.n_batches * cfg.training.batch_size}"
-        )
-        print(
-            f"  validation spectra:    "
-            f"{cfg.validation.n_spectra}"
-        )
-        print(
-            f"  validation batch size: "
-            f"{cfg.validation.batch_size}"
-        )
-        print(
-            f"  validation batches:    "
-            f"{len(validation_batches)}"
+        is_best_model = (
+            best_loss is None
+            or val_loss < best_loss
         )
 
-        best_loss: float | None = None
-
-        loss_path = (
-            model_dir
-            / "loss.txt"
-        )
-
-        with open(
-            loss_path,
-            "w",
-        ) as file:
-            file.write(
-                "Epoch; Epoch Loss; "
-                "Validation Loss; "
-                "Learning Rate;\n"
-            )
-
-        for epoch in range(
-            cfg.training.epochs
-        ):
-            model, train_loss = (
-                train_one_epoch(
-                    model=model,
-                    simulator=(
-                        train_simulator
-                    ),
-                    generator=(
-                        train_generator
-                    ),
-                    optimizer=optimizer,
-                    loss_func=loss_func,
-                    architecture=(
-                        architecture
-                    ),
-                    batch_size=(
-                        cfg.training
-                        .batch_size
-                    ),
-                    n_batches=(
-                        cfg.training
-                        .n_batches
-                    ),
-                    verbose=(
-                        cfg.training
-                        .verbose
-                    ),
-                    device=device,
-                    epoch=epoch,
-                )
-            )
-
-            val_loss = (
-                validate_one_epoch(
-                    model=model,
-                    validation_batches=(
-                        validation_batches
-                    ),
-                    loss_func=loss_func,
-                    architecture=(
-                        architecture
-                    ),
-                    verbose=(
-                        cfg.training
-                        .verbose
-                    ),
-                    device=device,
-                    epoch=epoch,
-                )
-            )
-
-            learning_rate = (
-                scheduler
-                .get_last_lr()[0]
-            )
+        if is_best_model:
+            best_loss = val_loss
 
             torch.save(
                 model.state_dict(),
-                model_dir
-                / "model_last.pt",
+                model_dir / "model_best.pt",
             )
 
-            is_best_model = (
-                best_loss is None
-                or val_loss < best_loss
+        with loss_path.open(
+            "a",
+            encoding="utf-8",
+        ) as file:
+            log = (
+                "Epoch: {:03d}, "
+                "Loss: {:.10f}, "
+                "Val Loss: {:.10f}, "
+                "LR: {:.10f}"
+            )
+
+            file.write(
+                log.format(
+                    epoch + 1,
+                    train_loss,
+                    val_loss,
+                    learning_rate,
+                )
             )
 
             if is_best_model:
-                best_loss = val_loss
-
-                torch.save(
-                    model.state_dict(),
-                    model_dir
-                    / "model_best.pt",
-                )
-
-            with open(
-                loss_path,
-                "a",
-            ) as file:
-                log = (
-                    "Epoch: {:03d}, "
-                    "Loss: {:.10f}, "
-                    "Val Loss: {:.10f}, "
-                    "LR: {:.10f}"
-                )
-
                 file.write(
-                    log.format(
-                        epoch + 1,
-                        train_loss,
-                        val_loss,
-                        learning_rate,
-                    )
+                    ", best model"
                 )
 
-                if is_best_model:
-                    file.write(
-                        ", best model"
-                    )
+            file.write("\n")
 
-                file.write(
-                    "\n"
-                )
+        scheduler.step()
 
-            scheduler.step()
-
-        print(
-            "Simulation retry statistics:"
-        )
-        print(
-            f"  discarded batches: "
-            f"{train_simulator.discarded_batches}"
-        )
-        print(
-            f"  discarded spectra: "
-            f"{train_simulator.discarded_spectra}"
-        )
-
-    if cfg.prediction.enabled:
-        raise NotImplementedError(
-            "Prediction should be run through a separate "
-            "prediction script."
-        )
+    # ---------------------------------------------------------
+    # Simulation statistics
+    # ---------------------------------------------------------
+    print(
+        "Simulation retry statistics:"
+    )
+    print(
+        "  training discarded batches: "
+        f"{train_simulator.discarded_batches}"
+    )
+    print(
+        "  training discarded spectra: "
+        f"{train_simulator.discarded_spectra}"
+    )
+    print(
+        "  validation discarded batches: "
+        f"{validation_simulator.discarded_batches}"
+    )
+    print(
+        "  validation discarded spectra: "
+        f"{validation_simulator.discarded_spectra}"
+    )
 
     print(
         "All done!"

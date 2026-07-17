@@ -8,34 +8,16 @@ from .schema import (
     CheckpointCfg,
     DataCfg,
     ModelCfg,
-    OnTheFlyCfg,
-    OnTheFlyResourcesCfg,
     OptimCfg,
     OutputCfg,
-    PredictionCfg,
-    PrecomputedCfg,
     RunCfg,
     SchedulerCfg,
+    SimulationResourcesCfg,
     TrainConfig,
     TrainingCfg,
     ValidationCfg,
 )
 
-
-VALID_DATA_SOURCES = {
-    "on_the_fly",
-    "precomputed",
-}
-
-VALID_NORMALIZATIONS = {
-    "projection_energy",
-    "max_abs",
-}
-
-VALID_VALIDATION_MODES = {
-    "fixed_on_start",
-    "precomputed",
-}
 
 VALID_MODEL_ARCHITECTURES = {
     "unet",
@@ -58,22 +40,49 @@ def _resolve_path(
     if not path:
         return ""
 
-    resolved_path = Path(
-        path
-    ).expanduser()
+    resolved_path = Path(path).expanduser()
 
     if (
         config_dir is not None
         and not resolved_path.is_absolute()
     ):
-        resolved_path = (
-            config_dir
-            / resolved_path
+        resolved_path = config_dir / resolved_path
+
+    return str(resolved_path.resolve())
+
+
+def _resolve_model_directory(
+    model: str,
+    output_base_dir: str,
+) -> str:
+    """
+    Resolve a warm-start model directory.
+
+    Relative model names are interpreted relative to
+    output.base_dir.
+
+    Example:
+
+        preload_model: "ExistingModel"
+
+    resolves to:
+
+        <output.base_dir>/ExistingModel
+    """
+    model = model.strip()
+
+    if not model:
+        return ""
+
+    model_path = Path(model).expanduser()
+
+    if not model_path.is_absolute():
+        model_path = (
+            Path(output_base_dir)
+            / model_path
         )
 
-    return str(
-        resolved_path.resolve()
-    )
+    return str(model_path.resolve())
 
 
 def _validate_subjects(
@@ -135,13 +144,6 @@ def validate_config(
     # ---------------------------------------------------------
     # Data
     # ---------------------------------------------------------
-    if cfg.data.source not in VALID_DATA_SOURCES:
-        raise ValueError(
-            "data.source must be one of "
-            f"{sorted(VALID_DATA_SOURCES)}, "
-            f"but found {cfg.data.source!r}."
-        )
-
     if not cfg.data.base_dir.strip():
         raise ValueError(
             "data.base_dir must not be empty."
@@ -169,88 +171,30 @@ def validate_config(
             f"  {overlapping_subjects}"
         )
 
-    if (
-        cfg.data.normalization
-        not in VALID_NORMALIZATIONS
-    ):
+    if not cfg.data.simulation_config.strip():
         raise ValueError(
-            "data.normalization must be one of "
-            f"{sorted(VALID_NORMALIZATIONS)}, "
-            f"but found {cfg.data.normalization!r}."
+            "data.simulation_config must not be empty."
         )
 
-    # ---------------------------------------------------------
-    # On-the-fly data
-    # ---------------------------------------------------------
-    if cfg.data.source == "on_the_fly":
-        if cfg.data.on_the_fly is None:
-            raise ValueError(
-                "data.on_the_fly must be defined when "
-                "data.source is 'on_the_fly'."
-            )
-
-        on_the_fly = cfg.data.on_the_fly
-
-        if not on_the_fly.simulation_config.strip():
-            raise ValueError(
-                "data.on_the_fly.simulation_config "
-                "must not be empty."
-            )
-
-        if not on_the_fly.resources.version.strip():
-            raise ValueError(
-                "data.on_the_fly.resources.version "
-                "must not be empty."
-            )
-
-        resources_filename = (
-            on_the_fly.resources.filename
+    if not cfg.data.resources.version.strip():
+        raise ValueError(
+            "data.resources.version must not be empty."
         )
 
-        if not resources_filename.strip():
-            raise ValueError(
-                "data.on_the_fly.resources.filename "
-                "must not be empty."
-            )
+    resources_filename = (
+        cfg.data.resources.filename
+    )
 
-        if "{version}" not in resources_filename:
-            raise ValueError(
-                "data.on_the_fly.resources.filename "
-                "must contain '{version}'."
-            )
+    if not resources_filename.strip():
+        raise ValueError(
+            "data.resources.filename must not be empty."
+        )
 
-    # ---------------------------------------------------------
-    # Precomputed data
-    # ---------------------------------------------------------
-    if cfg.data.source == "precomputed":
-        if cfg.data.precomputed is None:
-            raise ValueError(
-                "data.precomputed must be defined when "
-                "data.source is 'precomputed'."
-            )
-
-        precomputed = cfg.data.precomputed
-
-        if not precomputed.version.strip():
-            raise ValueError(
-                "data.precomputed.version "
-                "must not be empty."
-            )
-
-        if not precomputed.train_data_filename.strip():
-            raise ValueError(
-                "data.precomputed.train_data_filename "
-                "must not be empty."
-            )
-
-        if (
-            "{version}"
-            not in precomputed.train_data_filename
-        ):
-            raise ValueError(
-                "data.precomputed.train_data_filename "
-                "must contain '{version}'."
-            )
+    if "{version}" not in resources_filename:
+        raise ValueError(
+            "data.resources.filename must contain "
+            "'{version}'."
+        )
 
     # ---------------------------------------------------------
     # Output
@@ -268,90 +212,32 @@ def validate_config(
             "training.batch_size must be > 0."
         )
 
-    if cfg.training.num_workers < 0:
-        raise ValueError(
-            "training.num_workers must be >= 0."
-        )
-
     if cfg.training.epochs <= 0:
         raise ValueError(
             "training.epochs must be > 0."
         )
 
-    if cfg.data.source == "on_the_fly":
-        if cfg.training.n_batches <= 0:
-            raise ValueError(
-                "training.n_batches must be > 0 for "
-                "on-the-fly simulation."
-            )
-
-    else:
-        if (
-            cfg.training.n_batches == 0
-            or cfg.training.n_batches < -1
-        ):
-            raise ValueError(
-                "training.n_batches must be -1 or > 0 "
-                "for precomputed data."
-            )
+    if cfg.training.n_batches <= 0:
+        raise ValueError(
+            "training.n_batches must be > 0."
+        )
 
     # ---------------------------------------------------------
     # Validation
     # ---------------------------------------------------------
-    if (
-        cfg.validation.mode
-        not in VALID_VALIDATION_MODES
-    ):
-        raise ValueError(
-            "validation.mode must be one of "
-            f"{sorted(VALID_VALIDATION_MODES)}, "
-            f"but found {cfg.validation.mode!r}."
-        )
-
     if cfg.validation.seed < 0:
         raise ValueError(
             "validation.seed must be >= 0."
         )
 
+    if cfg.validation.n_spectra <= 0:
+        raise ValueError(
+            "validation.n_spectra must be > 0."
+        )
+
     if cfg.validation.batch_size <= 0:
         raise ValueError(
             "validation.batch_size must be > 0."
-        )
-
-    if cfg.validation.mode == "fixed_on_start":
-        if cfg.validation.n_spectra <= 0:
-            raise ValueError(
-                "validation.n_spectra must be > 0 "
-                "when validation.mode is "
-                "'fixed_on_start'."
-            )
-
-    if cfg.validation.mode == "precomputed":
-        if (
-            cfg.validation.n_spectra == 0
-            or cfg.validation.n_spectra < -1
-        ):
-            raise ValueError(
-                "validation.n_spectra must be -1 or > 0 "
-                "when validation.mode is 'precomputed'."
-            )
-
-    if (
-        cfg.data.source == "on_the_fly"
-        and cfg.validation.mode != "fixed_on_start"
-    ):
-        raise ValueError(
-            "validation.mode must be 'fixed_on_start' "
-            "when data.source is 'on_the_fly'."
-        )
-
-    if (
-        cfg.data.source == "precomputed"
-        and cfg.validation.mode != "precomputed"
-    ):
-        raise ValueError(
-            "validation.mode must be 'precomputed' "
-            "when data.source is 'precomputed'."
         )
 
     # ---------------------------------------------------------
@@ -378,16 +264,18 @@ def validate_config(
             "All scheduler.milestones must be > 0."
         )
 
-    if cfg.scheduler.milestones != sorted(
+    if (
         cfg.scheduler.milestones
+        != sorted(cfg.scheduler.milestones)
     ):
         raise ValueError(
             "scheduler.milestones must be sorted "
             "in ascending order."
         )
 
-    if len(cfg.scheduler.milestones) != len(
-        set(cfg.scheduler.milestones)
+    if (
+        len(cfg.scheduler.milestones)
+        != len(set(cfg.scheduler.milestones))
     ):
         raise ValueError(
             "scheduler.milestones contains "
@@ -438,7 +326,7 @@ def validate_config(
         )
 
     # ---------------------------------------------------------
-    # Checkpoint
+    # Checkpoint / warm start
     # ---------------------------------------------------------
     if (
         cfg.checkpoint.preload
@@ -462,6 +350,9 @@ def build_config(
 
     Resource filename templates remain relative because they are
     interpreted inside each subject directory.
+
+    Relative checkpoint model names are resolved relative to
+    output.base_dir.
     """
 
     # ---------------------------------------------------------
@@ -472,7 +363,7 @@ def build_config(
     run = RunCfg(
         name=str(
             run_raw["name"]
-        ),
+        ).strip(),
         seed=int(
             run_raw.get(
                 "seed",
@@ -488,87 +379,33 @@ def build_config(
     # Data
     # ---------------------------------------------------------
     data_raw = raw["data"]
-
-    source = str(
-        data_raw.get(
-            "source",
-            "precomputed",
-        )
-    )
-
-    on_the_fly_raw = data_raw.get(
-        "on_the_fly"
-    )
-
-    if on_the_fly_raw is None:
-        on_the_fly = None
-    else:
-        resources_raw = on_the_fly_raw[
-            "resources"
-        ]
-
-        on_the_fly = OnTheFlyCfg(
-            simulation_config=_resolve_path(
-                str(
-                    on_the_fly_raw[
-                        "simulation_config"
-                    ]
-                ),
-                config_dir,
-            ),
-            resources=OnTheFlyResourcesCfg(
-                version=str(
-                    resources_raw["version"]
-                ),
-                filename=str(
-                    resources_raw["filename"]
-                ),
-            ),
-        )
-
-    precomputed_raw = data_raw.get(
-        "precomputed"
-    )
-
-    if precomputed_raw is None:
-        precomputed = None
-    else:
-        precomputed = PrecomputedCfg(
-            version=str(
-                precomputed_raw["version"]
-            ),
-            train_data_filename=str(
-                precomputed_raw.get(
-                    "train_data_filename",
-                    "TrainData_{version}.h5",
-                )
-            ),
-        )
+    resources_raw = data_raw["resources"]
 
     data = DataCfg(
-        source=source,
         base_dir=_resolve_path(
             str(data_raw["base_dir"]),
             config_dir,
         ),
         train_subjects=[
-            str(subject)
-            for subject
-            in data_raw["train_subjects"]
+            str(subject).strip()
+            for subject in data_raw["train_subjects"]
         ],
         val_subjects=[
-            str(subject)
-            for subject
-            in data_raw["val_subjects"]
+            str(subject).strip()
+            for subject in data_raw["val_subjects"]
         ],
-        normalization=str(
-            data_raw.get(
-                "normalization",
-                "projection_energy",
-            )
+        simulation_config=_resolve_path(
+            str(data_raw["simulation_config"]),
+            config_dir,
         ),
-        on_the_fly=on_the_fly,
-        precomputed=precomputed,
+        resources=SimulationResourcesCfg(
+            version=str(
+                resources_raw["version"]
+            ).strip(),
+            filename=str(
+                resources_raw["filename"]
+            ).strip(),
+        ),
     )
 
     # ---------------------------------------------------------
@@ -595,29 +432,14 @@ def build_config(
     training_raw = raw["training"]
 
     training = TrainingCfg(
-        enabled=bool(
-            training_raw.get(
-                "enabled",
-                True,
-            )
-        ),
         batch_size=int(
             training_raw["batch_size"]
-        ),
-        num_workers=int(
-            training_raw.get(
-                "num_workers",
-                0,
-            )
         ),
         epochs=int(
             training_raw["epochs"]
         ),
         n_batches=int(
-            training_raw.get(
-                "n_batches",
-                -1,
-            )
+            training_raw["n_batches"]
         ),
         verbose=bool(
             training_raw.get(
@@ -630,30 +452,9 @@ def build_config(
     # ---------------------------------------------------------
     # Validation
     # ---------------------------------------------------------
-    validation_raw = raw.get(
-        "validation",
-        {},
-    )
-
-    default_validation_mode = (
-        "fixed_on_start"
-        if source == "on_the_fly"
-        else "precomputed"
-    )
-
-    default_n_spectra = (
-        35000
-        if source == "on_the_fly"
-        else -1
-    )
+    validation_raw = raw["validation"]
 
     validation = ValidationCfg(
-        mode=str(
-            validation_raw.get(
-                "mode",
-                default_validation_mode,
-            )
-        ),
         seed=int(
             validation_raw.get(
                 "seed",
@@ -661,10 +462,7 @@ def build_config(
             )
         ),
         n_spectra=int(
-            validation_raw.get(
-                "n_spectra",
-                default_n_spectra,
-            )
+            validation_raw["n_spectra"]
         ),
         batch_size=int(
             validation_raw.get(
@@ -693,8 +491,7 @@ def build_config(
     scheduler = SchedulerCfg(
         milestones=[
             int(milestone)
-            for milestone
-            in scheduler_raw["milestones"]
+            for milestone in scheduler_raw["milestones"]
         ],
         gamma=float(
             scheduler_raw["gamma"]
@@ -710,9 +507,9 @@ def build_config(
         architecture=str(
             model_raw.get(
                 "architecture",
-                "ynet",
+                "unet",
             )
-        ),
+        ).strip().lower(),
         n_layers=int(
             model_raw["n_layers"]
         ),
@@ -734,7 +531,7 @@ def build_config(
     )
 
     # ---------------------------------------------------------
-    # Checkpoint
+    # Checkpoint / warm start
     # ---------------------------------------------------------
     checkpoint_raw = raw.get(
         "checkpoint",
@@ -755,26 +552,9 @@ def build_config(
                 False,
             )
         ),
-        preload_model=_resolve_path(
-            preload_model_raw,
-            config_dir,
-        ),
-    )
-
-    # ---------------------------------------------------------
-    # Prediction
-    # ---------------------------------------------------------
-    prediction_raw = raw.get(
-        "prediction",
-        {},
-    )
-
-    prediction = PredictionCfg(
-        enabled=bool(
-            prediction_raw.get(
-                "enabled",
-                False,
-            )
+        preload_model=_resolve_model_directory(
+            model=preload_model_raw,
+            output_base_dir=output.base_dir,
         ),
     )
 
@@ -791,11 +571,8 @@ def build_config(
         scheduler=scheduler,
         model=model,
         checkpoint=checkpoint,
-        prediction=prediction,
     )
 
-    validate_config(
-        cfg
-    )
+    validate_config(cfg)
 
     return cfg

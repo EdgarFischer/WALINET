@@ -13,11 +13,12 @@ class RunCfg:
 
 
 @dataclass(frozen=True)
-class OnTheFlyResourcesCfg:
+class SimulationResourcesCfg:
     """
     Description of the subject-specific simulation-resource files.
 
     The filename is interpreted relative to each subject directory.
+    The placeholder ``{version}`` is replaced by ``version``.
     """
 
     version: str
@@ -25,37 +26,20 @@ class OnTheFlyResourcesCfg:
 
 
 @dataclass(frozen=True)
-class OnTheFlyCfg:
-    """
-    Configuration used only when data.source == "on_the_fly".
-    """
-
-    simulation_config: str
-    resources: OnTheFlyResourcesCfg
-
-
-@dataclass(frozen=True)
-class PrecomputedCfg:
-    """
-    Configuration used only when data.source == "precomputed".
-    """
-
-    version: str
-    train_data_filename: str
-
-
-@dataclass(frozen=True)
 class DataCfg:
-    source: str
+    """
+    Configuration for on-the-fly simulation.
+
+    ``base_dir`` contains the subject directories.
+    ``simulation_config`` points to the simulator YAML configuration.
+    """
 
     base_dir: str
     train_subjects: list[str]
     val_subjects: list[str]
 
-    normalization: str
-
-    on_the_fly: OnTheFlyCfg | None
-    precomputed: PrecomputedCfg | None
+    simulation_config: str
+    resources: SimulationResourcesCfg
 
 
 @dataclass(frozen=True)
@@ -66,9 +50,14 @@ class OutputCfg:
 
 @dataclass(frozen=True)
 class TrainingCfg:
-    enabled: bool
+    """
+    Training configuration.
+
+    ``n_batches`` determines how many newly simulated batches are
+    used during each epoch.
+    """
+
     batch_size: int
-    num_workers: int
     epochs: int
     n_batches: int
     verbose: bool
@@ -77,18 +66,10 @@ class TrainingCfg:
 @dataclass(frozen=True)
 class ValidationCfg:
     """
-    Validation dataset configuration.
-
-    For mode == "fixed_on_start":
-        A finite synthetic validation dataset is generated once
-        with the specified seed and reused after every epoch.
-
-    For mode == "precomputed":
-        Validation samples are read from precomputed files.
-        n_spectra == -1 means that all available samples are used.
+    A finite synthetic validation dataset is generated once at startup
+    using the specified seed and reused after every epoch.
     """
 
-    mode: str
     seed: int
     n_spectra: int
     batch_size: int
@@ -117,13 +98,15 @@ class ModelCfg:
 
 @dataclass(frozen=True)
 class CheckpointCfg:
+    """
+    Optional warm start from the weights of an existing model.
+
+    This loads model weights only. Optimizer state, scheduler state,
+    and epoch number are not restored.
+    """
+
     preload: bool
     preload_model: str
-
-
-@dataclass(frozen=True)
-class PredictionCfg:
-    enabled: bool
 
 
 @dataclass(frozen=True)
@@ -137,4 +120,3 @@ class TrainConfig:
     scheduler: SchedulerCfg
     model: ModelCfg
     checkpoint: CheckpointCfg
-    prediction: PredictionCfg

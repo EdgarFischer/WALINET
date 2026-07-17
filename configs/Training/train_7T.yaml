@@ -1,50 +1,37 @@
 run:
-  name: "7T_on_the_fly_test1"
+  name: "7T_on_the_fly_test_2"
   seed: 42
   gpu: 2
 
 data:
-  source: "on_the_fly"  # "on_the_fly" or "precomputed"
-
   base_dir: "../../data/7T/NoB0Correction"
 
-  train_subjects: ['Vol3_Brisbane', 'Vol4_Brisbane']
+  train_subjects: ["Vol3_Brisbane", "Vol4_Brisbane"]
+  val_subjects: ["Vol1_Brisbane"]
 
-  val_subjects: ['Vol1_Brisbane']
+  simulation_config: "../Simulation/7T_on_the_fly.yaml"
 
-  normalization: "max_abs"
-
-  on_the_fly:
-    simulation_config: "../Simulation/7T_on_the_fly.yaml"
-
-    resources:
-      version: "water_lipid_v1"
-      filename: "TrainData/SimulationResources_{version}.h5"
-
-  precomputed:
-    version: "v_2.0_558"
-    train_data_filename: "TrainData_{version}.h5"
+  resources:
+    version: "water_lipid_v1"
+    filename: "TrainData/SimulationResources_{version}.h5"
 
 output:
   base_dir: "../../models"
   overwrite: false
 
 training:
-  enabled: true
   batch_size: 3500
-  num_workers: 0
   epochs: 20
 
   # Number of newly simulated training batches per epoch.
-  # Must be finite for on-the-fly simulation.
   n_batches: 10
 
+  # Print information for every individual batch.
   verbose: false
 
 validation:
-  # Generate one finite validation dataset once at startup.
-  # The same validation samples are reused after every epoch.
-  mode: "fixed_on_start"
+  # A fixed synthetic validation dataset is generated once at startup
+  # and reused after every epoch.
   seed: 12345
   n_spectra: 35000
   batch_size: 3500
@@ -57,7 +44,7 @@ scheduler:
   gamma: 0.25
 
 model:
-  architecture: "unet"  # "ynet" or "unet"
+  architecture: "unet"  # "unet" or "ynet"
   n_layers: 3
   n_filters: 4
   in_channels: 2
@@ -65,8 +52,7 @@ model:
   dropout: 0.0
 
 checkpoint:
+  # Loads only model weights from:
+  # ../../models/<preload_model>/model_last.pt
   preload: false
-  preload_model: "../models/7T_Unet_6Layer_558_NoB0Cor_2"
-
-prediction:
-  enabled: false
+  preload_model: "7T_Unet_6Layer_558_NoB0Cor_2"

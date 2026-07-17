@@ -8,15 +8,11 @@ from pathlib import Path
 import torch
 import yaml
 
-from walinet.config.build import (
-    build_config,
-)
+from walinet.config.build import build_config
 from walinet.config.build_simulation import (
     build_simulation_config,
 )
-from walinet.config.schema import (
-    TrainConfig,
-)
+from walinet.config.schema import TrainConfig
 from walinet.config.schema_simulation import (
     SimulationConfig,
 )
@@ -87,14 +83,9 @@ def _load_yaml_mapping(
         "r",
         encoding="utf-8",
     ) as file:
-        raw = yaml.safe_load(
-            file
-        )
+        raw = yaml.safe_load(file)
 
-    if not isinstance(
-        raw,
-        dict,
-    ):
+    if not isinstance(raw, dict):
         raise TypeError(
             "Configuration file must contain a YAML mapping:\n"
             f"  file:  {path}\n"
@@ -117,17 +108,10 @@ def _resolve_device(
             "but CUDA is not available."
         )
 
-    gpu_index = int(
-        train_cfg.run.gpu
-    )
-
+    gpu_index = int(train_cfg.run.gpu)
     n_cuda_devices = torch.cuda.device_count()
 
-    if not (
-        0
-        <= gpu_index
-        < n_cuda_devices
-    ):
+    if not 0 <= gpu_index < n_cuda_devices:
         raise ValueError(
             "Configured GPU index is unavailable:\n"
             f"  requested: {gpu_index}\n"
@@ -143,15 +127,17 @@ def build_simulation_system(
     train_config_path: str | Path,
 ) -> SimulationSystem:
     """
-    Construct the complete on-the-fly simulation system from one
-    training configuration path.
+    Construct the complete simulation system from one training
+    configuration path.
 
     No simulation path, basis path, metabolite profile path,
     resource path, or device must be supplied separately.
     """
-    train_config_path = Path(
-        train_config_path
-    ).expanduser().resolve()
+    train_config_path = (
+        Path(train_config_path)
+        .expanduser()
+        .resolve()
+    )
 
     # ---------------------------------------------------------
     # Training configuration
@@ -165,25 +151,10 @@ def build_simulation_system(
         config_dir=train_config_path.parent,
     )
 
-    if train_cfg.data.source != "on_the_fly":
-        raise ValueError(
-            "build_simulation_system requires:\n"
-            "  data.source: 'on_the_fly'"
-        )
-
-    if train_cfg.data.on_the_fly is None:
-        raise ValueError(
-            "The training configuration contains no "
-            "data.on_the_fly section."
-        )
-
     # build_config has already resolved this path relative to the
     # directory containing the training YAML.
     simulation_config_path = Path(
-        train_cfg
-        .data
-        .on_the_fly
-        .simulation_config
+        train_cfg.data.simulation_config
     ).resolve()
 
     # ---------------------------------------------------------
@@ -215,14 +186,10 @@ def build_simulation_system(
     prepared_basis = prepare_basis_for_acquisition(
         simulation_cfg.basis.library,
         target_bandwidth=(
-            simulation_cfg
-            .acquisition
-            .bandwidth_hz
+            simulation_cfg.acquisition.bandwidth_hz
         ),
         target_n_timepoints=(
-            simulation_cfg
-            .acquisition
-            .n_timepoints
+            simulation_cfg.acquisition.n_timepoints
         ),
         dataset_name="clean_fid",
     )
@@ -249,41 +216,29 @@ def build_simulation_system(
     )
 
     # ---------------------------------------------------------
-    # Complete train and validation simulators
+    # Complete training and validation simulators
     # ---------------------------------------------------------
     train_simulator = SpectrumSimulator(
         pool=resources.train,
-        metabolite_simulator=(
-            metabolite_simulator
-        ),
+        metabolite_simulator=metabolite_simulator,
         config=simulation_cfg,
     )
 
     validation_simulator = SpectrumSimulator(
         pool=resources.validation,
-        metabolite_simulator=(
-            metabolite_simulator
-        ),
+        metabolite_simulator=metabolite_simulator,
         config=simulation_cfg,
     )
 
     return SimulationSystem(
-        train_config_path=(
-            train_config_path
-        ),
-        simulation_config_path=(
-            simulation_config_path
-        ),
+        train_config_path=train_config_path,
+        simulation_config_path=simulation_config_path,
         train_config=train_cfg,
         simulation_config=simulation_cfg,
         prepared_basis=prepared_basis,
         resources=resources,
-        metabolite_simulator=(
-            metabolite_simulator
-        ),
+        metabolite_simulator=metabolite_simulator,
         train_simulator=train_simulator,
-        validation_simulator=(
-            validation_simulator
-        ),
+        validation_simulator=validation_simulator,
         device=device,
     )

@@ -1199,31 +1199,10 @@ def build_simulation_resources(
 
     The returned tensors are initially stored on the CPU.
     """
-    if train_cfg.data.source != "on_the_fly":
-        raise ValueError(
-            "Simulation resources can only be built when "
-            "data.source is 'on_the_fly'."
-        )
-
-    if train_cfg.data.on_the_fly is None:
-        raise ValueError(
-            "train_cfg.data.on_the_fly is missing."
-        )
-
-    on_the_fly_cfg = (
-        train_cfg.data.on_the_fly
-    )
 
     resource_filename = (
-        on_the_fly_cfg
-        .resources
-        .filename
-        .format(
-            version=(
-                on_the_fly_cfg
-                .resources
-                .version
-            )
+        train_cfg.data.resources.filename.format(
+            version=train_cfg.data.resources.version,
         )
     )
 
