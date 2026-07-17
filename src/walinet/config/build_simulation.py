@@ -7,6 +7,7 @@ from pathlib import Path
 from .schema_simulation import (
     AcquisitionCfg,
     BasisCfg,
+    FirstOrderPhaseCfg,
     FrequencyShiftCfg,
     FWHMCfg,
     LipidCfg,
@@ -19,6 +20,7 @@ from .schema_simulation import (
     SNRDistributionCfg,
     SubjectSamplingCfg,
     WaterCfg,
+    ZeroOrderPhaseCfg,
 )
 
 
@@ -225,7 +227,9 @@ def build_simulation_config(
         ),
     )
 
-    fwhm_raw = metabolites_raw["fwhm"]
+    fwhm_raw = metabolites_raw[
+        "fwhm"
+    ]
 
     fwhm = FWHMCfg(
         mean_hz=float(
@@ -236,18 +240,44 @@ def build_simulation_config(
         ),
     )
 
+    zero_order_phase_raw = metabolites_raw[
+        "zero_order_phase"
+    ]
+
+    zero_order_phase = ZeroOrderPhaseCfg(
+        mean_rad=float(
+            zero_order_phase_raw["mean_rad"]
+        ),
+        std_rad=float(
+            zero_order_phase_raw["std_rad"]
+        ),
+    )
+
+    first_order_phase_raw = metabolites_raw[
+        "first_order_phase"
+    ]
+
+    first_order_phase = FirstOrderPhaseCfg(
+        mean_rad_per_hz=float(
+            first_order_phase_raw[
+                "mean_rad_per_hz"
+            ]
+        ),
+        std_rad_per_hz=float(
+            first_order_phase_raw[
+                "std_rad_per_hz"
+            ]
+        ),
+    )
+
     metabolites = MetaboliteCfg(
         profiles=tuple(
             profiles
         ),
-        max_acquisition_delay_seconds=float(
-            metabolites_raw.get(
-                "max_acquisition_delay_seconds",
-                0.0,
-            )
-        ),
         frequency_shift=frequency_shift,
         fwhm=fwhm,
+        zero_order_phase=zero_order_phase,
+        first_order_phase=first_order_phase,
     )
 
     # ---------------------------------------------------------

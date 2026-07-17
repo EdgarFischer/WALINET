@@ -11,7 +11,11 @@ acquisition:
   min_acquired_n_timepoints: 558
   max_acquired_n_timepoints: 840
 
-  nmr_frequency_hz: 297222931.0
+  # Larmor frequency of the acquisition.
+  # This value is not used during simulation.
+  # It is stored for documentation purposes and to enable Hz↔ppm
+  # conversions for visualization, analysis, and interfacing with LCModel.
+  nmr_frequency_hz: 297222931
 
 
 basis:
@@ -23,8 +27,6 @@ metabolites:
     - config: "Metabos_healthy.yaml"
       probability: 1.0
 
-  max_acquisition_delay_seconds: 0.002
-
   frequency_shift:
     mean_hz: 0.0
     std_hz: 5.0
@@ -32,6 +34,25 @@ metabolites:
   fwhm:
     mean_hz: 15.0
     std_hz: 8.0
+
+  # Frequency-independent global phase rotation applied only to the
+  # simulated metabolite signal.
+  #
+  # phi_0 ~ Normal(mean_rad, std_rad)
+  zero_order_phase:
+    mean_rad: 0.0
+    std_rad: 0.15
+
+  # Linear phase slope over frequency, applied only to the simulated
+  # metabolite spectrum.
+  #
+  # phi(f) = phi_0 + phi_1 * f
+  #
+  # phi_1 is expressed in rad/Hz, so that:
+  #   phi_1 [rad/Hz] * f [Hz] = phase [rad]
+  first_order_phase:
+    mean_rad_per_hz: 0.0
+    std_rad_per_hz: 0.00025
 
 
 noise:

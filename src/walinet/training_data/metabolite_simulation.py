@@ -95,8 +95,8 @@ class SimulatedMetabolites:
     concentrations: torch.Tensor
     profile_indices: torch.Tensor
 
-    acquisition_delays_seconds: torch.Tensor
-    global_phases_radians: torch.Tensor
+    zero_order_phases_radians: torch.Tensor
+    first_order_phases_rad_per_hz: torch.Tensor
     frequency_shifts_hz: torch.Tensor
 
     voigt_fwhm_hz: torch.Tensor
@@ -448,10 +448,16 @@ class MetaboliteSimulator:
         2. Sample non-negative concentrations from that profile.
         3. Combine PreparedBasis FIDs.
         4. Sample total Voigt FWHM and line-shape mixture.
-        5. Apply global phase and normally distributed frequency shift.
-        6. Apply Gaussian/Lorentzian FID broadening in Hz.
-        7. Apply acquisition delay through a spectral phase ramp.
+        5. Sample frequency shift and zero-order phase.
+        6. Apply frequency shift, zero-order phase, and
+           Gaussian/Lorentzian FID broadening.
+        7. Sample and apply first-order phase in the frequency
+           domain.
         8. Transform to fftshifted spectra.
+
+    The zero-order and first-order phases are applied only to the
+    simulated metabolite signal. Measured water and lipid signals
+    retain their original complex phases.
 
     The simulator has no internal random state. An explicit
     torch.Generator must be supplied for every simulation call.
@@ -558,6 +564,13 @@ class MetaboliteSimulator:
             )
         )
 
+        # Unshifted FFT frequency offsets in Hz.
+        #
+        # The first-order phase is defined relative to 0 Hz:
+        #
+        #     phase(f) = phi_1 * f
+        #
+        # where phi_1 is expressed in rad/Hz.
         self.frequency_axis_hz = (
             torch.fft.fftfreq(
                 prepared_basis.n_timepoints,
@@ -628,22 +641,35 @@ class MetaboliteSimulator:
             @ self.basis_fids
         )
 
-        acquisition_delays = (
-            self._sample_symmetric_uniform(
-                maximum=(
-                    self.config
-                    .metabolites
-                    .max_acquisition_delay_seconds
-                ),
-                batch_size=batch_size,
-                generator=generator,
-            )
+        zero_order_phase_cfg = (
+            self.config
+            .metabolites
+            .zero_order_phase
         )
 
-        global_phases = self._sample_uniform(
-            minimum=0.0,
-            maximum=2.0 * math.pi,
-            batch_size=batch_size,
+        zero_order_phases = self._sample_normal(
+            mean=zero_order_phase_cfg.mean_rad,
+            std=zero_order_phase_cfg.std_rad,
+            shape=(batch_size,),
+            generator=generator,
+        )
+
+        first_order_phase_cfg = (
+            self.config
+            .metabolites
+            .first_order_phase
+        )
+
+        first_order_phases = self._sample_normal(
+            mean=(
+                first_order_phase_cfg
+                .mean_rad_per_hz
+            ),
+            std=(
+                first_order_phase_cfg
+                .std_rad_per_hz
+            ),
+            shape=(batch_size,),
             generator=generator,
         )
 
@@ -699,8 +725,8 @@ class MetaboliteSimulator:
                 metabolite_fids=(
                     metabolite_fids
                 ),
-                global_phases=(
-                    global_phases
+                zero_order_phases_radians=(
+                    zero_order_phases
                 ),
                 frequency_shifts_hz=(
                     frequency_shifts
@@ -715,9 +741,13 @@ class MetaboliteSimulator:
         )
 
         clean_fids = (
-            self._apply_acquisition_delay(
-                affected_fids,
-                acquisition_delays,
+            self._apply_first_order_phase(
+                metabolite_fids=(
+                    affected_fids
+                ),
+                first_order_phases_rad_per_hz=(
+                    first_order_phases
+                ),
             )
         )
 
@@ -741,11 +771,11 @@ class MetaboliteSimulator:
             profile_indices=(
                 profile_indices
             ),
-            acquisition_delays_seconds=(
-                acquisition_delays
+            zero_order_phases_radians=(
+                zero_order_phases
             ),
-            global_phases_radians=(
-                global_phases
+            first_order_phases_rad_per_hz=(
+                first_order_phases
             ),
             frequency_shifts_hz=(
                 frequency_shifts
@@ -936,7 +966,7 @@ class MetaboliteSimulator:
                 device=self.device,
                 dtype=torch.float32,
             )
-        )
+        ).contiguous()
 
     def _sample_positive_normal(
         self,
@@ -1018,26 +1048,7 @@ class MetaboliteSimulator:
                 - minimum
             )
             * random_values
-        )
-
-    def _sample_symmetric_uniform(
-        self,
-        *,
-        maximum: float,
-        batch_size: int,
-        generator: torch.Generator,
-    ) -> torch.Tensor:
-        if maximum < 0:
-            raise ValueError(
-                "maximum must be >= 0."
-            )
-
-        return self._sample_uniform(
-            minimum=-maximum,
-            maximum=maximum,
-            batch_size=batch_size,
-            generator=generator,
-        )
+        ).contiguous()
 
     def _split_voigt_fwhm(
         self,
@@ -1134,23 +1145,40 @@ class MetaboliteSimulator:
             gaussian_fwhm_hz.contiguous(),
         )
 
-    def _apply_acquisition_delay(
+    def _apply_first_order_phase(
         self,
+        *,
         metabolite_fids: torch.Tensor,
-        delays_seconds: torch.Tensor,
+        first_order_phases_rad_per_hz: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Apply x(t + delay) using a linear phase ramp in the
-        unshifted FFT domain.
+        Apply a linear first-order phase in the unshifted
+        frequency domain.
 
-        For the FFT convention used by PyTorch:
+        The phase is defined relative to the spectral center
+        at 0 Hz:
 
-            x(t + tau)
-            <->
-            X(f) * exp(+i * 2*pi*f*tau)
+            phase(f) = phi_1 * f
+
+        where:
+
+            phi_1:
+                First-order phase in rad/Hz.
+
+            f:
+                Frequency offset in Hz.
+
+        The spectrum is multiplied by:
+
+            exp(+i * phi_1 * f)
+
+        The sign convention can later be validated against the
+        corresponding LCModel first-order phase output. If LCModel
+        reports the correction rather than the distortion, the
+        calibration values must be negated before simulation.
         """
         if torch.all(
-            delays_seconds == 0
+            first_order_phases_rad_per_hz == 0
         ):
             return metabolite_fids.contiguous()
 
@@ -1160,41 +1188,51 @@ class MetaboliteSimulator:
         )
 
         phase_angles = (
-            2.0
-            * math.pi
-            * delays_seconds[:, None]
+            first_order_phases_rad_per_hz[
+                :,
+                None,
+            ]
             * self.frequency_axis_hz[
                 None,
                 :
             ]
         )
 
-        phase_ramp = torch.polar(
+        phase_factor = torch.polar(
             torch.ones_like(
                 phase_angles
             ),
             phase_angles,
         )
 
-        delayed_fids = torch.fft.ifft(
+        phased_fids = torch.fft.ifft(
             spectra
-            * phase_ramp,
+            * phase_factor,
             dim=-1,
         )
 
-        return delayed_fids.contiguous()
+        return phased_fids.contiguous()
 
     def _apply_fid_effects(
         self,
         *,
         metabolite_fids: torch.Tensor,
-        global_phases: torch.Tensor,
+        zero_order_phases_radians: torch.Tensor,
         frequency_shifts_hz: torch.Tensor,
         gaussian_fwhm_hz: torch.Tensor,
         lorentzian_fwhm_hz: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Apply phase, frequency shift and Voigt broadening.
+        Apply zero-order phase, frequency shift, and Voigt
+        broadening.
+
+        Zero-order phase:
+
+            exp(+i * phi_0)
+
+        Frequency shift:
+
+            exp(+i * 2*pi*delta_f*t)
 
         Lorentzian FID decay:
 
@@ -1214,10 +1252,16 @@ class MetaboliteSimulator:
         )
 
         phase_angles = (
-            global_phases[:, None]
+            zero_order_phases_radians[
+                :,
+                None,
+            ]
             + 2.0
             * math.pi
-            * frequency_shifts_hz[:, None]
+            * frequency_shifts_hz[
+                :,
+                None,
+            ]
             * time_axis
         )
 
@@ -1230,14 +1274,20 @@ class MetaboliteSimulator:
 
         lorentzian_exponent = (
             math.pi
-            * lorentzian_fwhm_hz[:, None]
+            * lorentzian_fwhm_hz[
+                :,
+                None,
+            ]
             * time_axis
         )
 
         gaussian_exponent = (
             (
                 math.pi
-                * gaussian_fwhm_hz[:, None]
+                * gaussian_fwhm_hz[
+                    :,
+                    None,
+                ]
                 * time_axis
             ).square()
             / (
@@ -1439,11 +1489,11 @@ class MetaboliteSimulator:
             )
 
         parameter_tensors = {
-            "acquisition_delays_seconds": (
-                result.acquisition_delays_seconds
+            "zero_order_phases_radians": (
+                result.zero_order_phases_radians
             ),
-            "global_phases_radians": (
-                result.global_phases_radians
+            "first_order_phases_rad_per_hz": (
+                result.first_order_phases_rad_per_hz
             ),
             "frequency_shifts_hz": (
                 result.frequency_shifts_hz

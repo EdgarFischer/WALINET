@@ -22,6 +22,14 @@ class AcquisitionCfg:
 
     Samples after the selected acquisition length are set to zero
     before the final FFT.
+
+    nmr_frequency_hz:
+        Larmor frequency of the acquisition.
+
+        This value is not used during simulation. It is stored for
+        documentation purposes and to enable Hz-to-ppm and ppm-to-Hz
+        conversions during visualization, post-processing, and
+        interfacing with LCModel.
     """
 
     bandwidth_hz: float
@@ -196,6 +204,76 @@ class FWHMCfg:
 
 
 @dataclass(frozen=True)
+class ZeroOrderPhaseCfg:
+    """
+    Normal distribution of the frequency-independent phase rotation.
+
+    The phase is expressed in radians and is applied only to the
+    simulated metabolite signal.
+
+    Negative and positive values are allowed.
+    """
+
+    mean_rad: float
+    std_rad: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.mean_rad):
+            raise ValueError(
+                "metabolites.zero_order_phase.mean_rad "
+                "must be finite."
+            )
+
+        if (
+            not math.isfinite(self.std_rad)
+            or self.std_rad < 0
+        ):
+            raise ValueError(
+                "metabolites.zero_order_phase.std_rad "
+                "must be finite and >= 0."
+            )
+
+
+@dataclass(frozen=True)
+class FirstOrderPhaseCfg:
+    """
+    Normal distribution of the linear phase slope over frequency.
+
+    The slope is expressed in radians per Hz and is applied only
+    to the simulated metabolite spectrum.
+
+    For a frequency offset f in Hz, the corresponding phase is
+
+        phase(f) = first_order_phase * f.
+
+    Therefore,
+
+        rad/Hz * Hz = rad.
+
+    Negative and positive values are allowed.
+    """
+
+    mean_rad_per_hz: float
+    std_rad_per_hz: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.mean_rad_per_hz):
+            raise ValueError(
+                "metabolites.first_order_phase."
+                "mean_rad_per_hz must be finite."
+            )
+
+        if (
+            not math.isfinite(self.std_rad_per_hz)
+            or self.std_rad_per_hz < 0
+        ):
+            raise ValueError(
+                "metabolites.first_order_phase."
+                "std_rad_per_hz must be finite and >= 0."
+            )
+
+
+@dataclass(frozen=True)
 class MetaboliteCfg:
     """
     Metabolite simulation parameters.
@@ -203,14 +281,22 @@ class MetaboliteCfg:
     One profile is sampled for each complete simulated spectrum.
     All metabolite concentrations of that spectrum are then drawn
     from the selected profile.
+
+    Frequency shift, FWHM, zero-order phase, and first-order phase
+    are sampled independently from normal distributions.
+
+    Both phase terms are applied only to the simulated metabolite
+    signal. Measured water and lipid signals retain their original
+    complex phases.
     """
 
     profiles: tuple[MetaboliteProfileCfg, ...]
 
-    max_acquisition_delay_seconds: float
-
     frequency_shift: FrequencyShiftCfg
     fwhm: FWHMCfg
+
+    zero_order_phase: ZeroOrderPhaseCfg
+    first_order_phase: FirstOrderPhaseCfg
 
     def __post_init__(self) -> None:
         if not self.profiles:
@@ -234,17 +320,6 @@ class MetaboliteCfg:
                 "metabolites.profiles probabilities must sum "
                 "to 1. Found: "
                 f"{probability_sum:.12g}"
-            )
-
-        if (
-            not math.isfinite(
-                self.max_acquisition_delay_seconds
-            )
-            or self.max_acquisition_delay_seconds < 0
-        ):
-            raise ValueError(
-                "metabolites.max_acquisition_delay_seconds "
-                "must be finite and >= 0."
             )
 
 
