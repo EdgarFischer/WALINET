@@ -1,5 +1,11 @@
 # FINAL TRAINER-READY VERSION
-# Includes max_retries, normalization, network_input, network_target, and simulate_raw.
+# Includes:
+# - max_retries
+# - shared max-absolute normalization
+# - network_input
+# - network_target
+# - optional network_l2 for legacy YNet
+# - simulate_raw
 
 # src/walinet/training_data/spectrum_simulator.py
 
@@ -111,6 +117,9 @@ def complex_spectra_to_channels(
 class SimulatedSpectrumBatch:
     """
     Complete unnormalized output of one vectorized simulation call.
+
+    The optional L2 spectrum is only available when lipid
+    projection is enabled in the simulation configuration.
     """
 
     sampled_resources: SampledResources
@@ -125,13 +134,41 @@ class SimulatedSpectrumBatch:
     def input_spectra(
         self,
     ) -> torch.Tensor:
+        """
+        Unprojected complete input spectrum.
+
+        Shape:
+            (B, T), complex
+        """
         return self.assembled.input_spectra
+
+    @property
+    def l2_spectra(
+        self,
+    ) -> torch.Tensor | None:
+        """
+        Optional lipid-projected spectrum for the legacy YNet
+        second input.
+
+        Shape:
+            (B, T), complex
+
+        Returns:
+            None when lipid projection is disabled.
+        """
+        return self.assembled.l2_spectra
 
     @property
     def target_spectra(
         self,
     ) -> torch.Tensor:
-        return self.assembled.metabolite_spectra
+        """
+        Target baseline spectrum containing water and lipids.
+
+        Shape:
+            (B, T), complex
+        """
+        return self.assembled.target_spectra
 
     @property
     def acquired_n_timepoints(
@@ -191,12 +228,18 @@ class PreparedSpectrumBatch:
     Normalization
     -------------
     For every batch item, the normalization factor is calculated
-    only from the final input spectrum:
+    only from the final unprojected input spectrum:
 
         scale = max(abs(input))
 
-    The identical scale is used for input and target. This preserves
-    their relative amplitudes.
+    The identical scale is used for:
+
+        input
+        target
+        optional L2-projected spectrum
+
+    This preserves all relative amplitudes between both YNet
+    inputs and the target.
 
     Shapes
     ------
@@ -206,11 +249,17 @@ class PreparedSpectrumBatch:
     normalized_target_spectra:
         (B, T), complex
 
+    normalized_l2_spectra:
+        (B, T), complex, or None
+
     network_input:
         (B, 2, T), float
 
     network_target:
         (B, 2, T), float
+
+    network_l2:
+        (B, 2, T), float, or None
 
     normalization_scale:
         (B, 1), float
@@ -220,9 +269,11 @@ class PreparedSpectrumBatch:
 
     normalized_input_spectra: torch.Tensor
     normalized_target_spectra: torch.Tensor
+    normalized_l2_spectra: torch.Tensor | None
 
     network_input: torch.Tensor
     network_target: torch.Tensor
+    network_l2: torch.Tensor | None
 
     normalization_scale: torch.Tensor
 
@@ -239,6 +290,12 @@ class PreparedSpectrumBatch:
         self,
     ) -> torch.Tensor:
         return self.raw.target_spectra
+
+    @property
+    def raw_l2_spectra(
+        self,
+    ) -> torch.Tensor | None:
+        return self.raw.l2_spectra
 
     @property
     def acquired_n_timepoints(
@@ -295,9 +352,10 @@ class SpectrumSimulator:
         Return the complete unnormalized complex simulation.
 
     simulate():
-        Return the trainer-ready, normalized real/imaginary tensors.
-        On rare non-finite numerical failures, the complete batch is
-        discarded and newly sampled.
+        Return trainer-ready, normalized real/imaginary tensors.
+
+        On rare non-finite numerical failures, the complete batch
+        is discarded and newly sampled.
     """
 
     def __init__(
@@ -490,9 +548,14 @@ class SpectrumSimulator:
         """
         Apply input-based max-absolute normalization, convert to
         real/imaginary channels, and run the final finite check.
+
+        Input, target, and optional L2 spectrum are normalized
+        with the identical scale calculated from the unprojected
+        input spectrum.
         """
         raw_input = raw.input_spectra
         raw_target = raw.target_spectra
+        raw_l2 = raw.l2_spectra
 
         normalization_scale = torch.amax(
             torch.abs(
@@ -531,6 +594,16 @@ class SpectrumSimulator:
             / normalization_scale
         ).contiguous()
 
+        normalized_l2: torch.Tensor | None
+
+        if raw_l2 is None:
+            normalized_l2 = None
+        else:
+            normalized_l2 = (
+                raw_l2
+                / normalization_scale
+            ).contiguous()
+
         network_input = (
             complex_spectra_to_channels(
                 normalized_input
@@ -543,24 +616,55 @@ class SpectrumSimulator:
             )
         )
 
-        final_is_finite = (
+        network_l2: torch.Tensor | None
+
+        if normalized_l2 is None:
+            network_l2 = None
+        else:
+            network_l2 = (
+                complex_spectra_to_channels(
+                    normalized_l2
+                )
+            )
+
+        if not bool(
             torch.isfinite(
                 network_input
             ).all()
-            & torch.isfinite(
-                network_target
-            ).all()
-            & torch.isfinite(
-                normalization_scale
-            ).all()
-        )
-
-        if not bool(
-            final_is_finite
         ):
             raise RetryableSimulationError(
-                "Final normalized input, target, or "
-                "normalization scale contains non-finite values."
+                "Final network input contains non-finite values."
+            )
+
+        if not bool(
+            torch.isfinite(
+                network_target
+            ).all()
+        ):
+            raise RetryableSimulationError(
+                "Final network target contains non-finite values."
+            )
+
+        if (
+            network_l2 is not None
+            and not bool(
+                torch.isfinite(
+                    network_l2
+                ).all()
+            )
+        ):
+            raise RetryableSimulationError(
+                "Final network L2 input contains non-finite values."
+            )
+
+        if not bool(
+            torch.isfinite(
+                normalization_scale
+            ).all()
+        ):
+            raise RetryableSimulationError(
+                "Final normalization scale contains "
+                "non-finite values."
             )
 
         result = PreparedSpectrumBatch(
@@ -571,8 +675,12 @@ class SpectrumSimulator:
             normalized_target_spectra=(
                 normalized_target
             ),
+            normalized_l2_spectra=(
+                normalized_l2
+            ),
             network_input=network_input,
             network_target=network_target,
+            network_l2=network_l2,
             normalization_scale=(
                 normalization_scale.contiguous()
             ),
@@ -718,6 +826,34 @@ class SpectrumSimulator:
                 f"{tuple(result.target_spectra.shape)}"
             )
 
+        if result.l2_spectra is not None:
+            if tuple(
+                result.l2_spectra.shape
+            ) != expected_spectrum_shape:
+                raise RuntimeError(
+                    "Unexpected final L2-spectrum shape:\n"
+                    f"  expected: {expected_spectrum_shape}\n"
+                    f"  found:    "
+                    f"{tuple(result.l2_spectra.shape)}"
+                )
+
+            if not torch.is_complex(
+                result.l2_spectra
+            ):
+                raise TypeError(
+                    "Final L2 spectra must be complex-valued."
+                )
+
+            if (
+                result.l2_spectra.device
+                != self.device
+            ):
+                raise RuntimeError(
+                    "Final L2 spectra are on "
+                    f"{result.l2_spectra.device}, "
+                    f"but expected {self.device}."
+                )
+
         if tuple(
             result.acquired_n_timepoints.shape
         ) != (expected_batch_size,):
@@ -812,13 +948,65 @@ class SpectrumSimulator:
                 "Unexpected normalization-scale shape."
             )
 
-        for tensor in (
+        if (
+            result.normalized_l2_spectra
+            is None
+        ) != (
+            result.network_l2
+            is None
+        ):
+            raise RuntimeError(
+                "normalized_l2_spectra and network_l2 "
+                "must either both exist or both be None."
+            )
+
+        if (
+            result.normalized_l2_spectra
+            is not None
+        ):
+            if tuple(
+                result
+                .normalized_l2_spectra
+                .shape
+            ) != expected_complex_shape:
+                raise RuntimeError(
+                    "Unexpected normalized L2-spectrum shape."
+                )
+
+            if result.network_l2 is None:
+                raise RuntimeError(
+                    "network_l2 is unexpectedly None."
+                )
+
+            if tuple(
+                result.network_l2.shape
+            ) != expected_channel_shape:
+                raise RuntimeError(
+                    "Unexpected network L2-input shape."
+                )
+
+        tensors = [
             result.normalized_input_spectra,
             result.normalized_target_spectra,
             result.network_input,
             result.network_target,
             result.normalization_scale,
+        ]
+
+        if (
+            result.normalized_l2_spectra
+            is not None
         ):
+            tensors.append(
+                result.normalized_l2_spectra
+            )
+
+        if result.network_l2 is not None:
+            tensors.append(
+                result.network_l2
+            )
+
+        for tensor in tensors:
             if tensor.device != self.device:
                 raise RuntimeError(
                     "Prepared output is on the wrong device."

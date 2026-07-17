@@ -1,7 +1,7 @@
 run:
-  name: "7T_Unet_6Layer_558_NoB0Cor_3"
+  name: "7T_on_the_fly_test1"
   seed: 42
-  gpu: 3
+  gpu: 2
 
 data:
   source: "on_the_fly"  # "on_the_fly" or "precomputed"
@@ -26,18 +26,18 @@ data:
     train_data_filename: "TrainData_{version}.h5"
 
 output:
-  base_dir: "../models"
+  base_dir: "../../models"
   overwrite: false
 
 training:
   enabled: true
   batch_size: 3500
   num_workers: 0
-  epochs: 300
+  epochs: 20
 
   # Number of newly simulated training batches per epoch.
   # Must be finite for on-the-fly simulation.
-  n_batches: 1000
+  n_batches: 10
 
   verbose: false
 
@@ -58,14 +58,14 @@ scheduler:
 
 model:
   architecture: "unet"  # "ynet" or "unet"
-  n_layers: 6
-  n_filters: 16
+  n_layers: 3
+  n_filters: 4
   in_channels: 2
   out_channels: 2
   dropout: 0.0
 
 checkpoint:
-  preload: true
+  preload: false
   preload_model: "../models/7T_Unet_6Layer_558_NoB0Cor_2"
 
 prediction:

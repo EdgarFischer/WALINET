@@ -129,15 +129,24 @@ class AssembledSpectra:
         self,
     ) -> torch.Tensor:
         """
-        Final network input.
+        Final unprojected noisy network input.
 
-        When lipid projection is enabled, use the projected result.
-        Otherwise use the unprojected noisy mixture.
+        Contains:
+            metabolites + water + lipids + receiver noise
         """
-        if self.projected_spectra is not None:
-            return self.projected_spectra
-
         return self.mixture_spectra
+
+    @property
+    def l2_spectra(
+        self,
+    ) -> torch.Tensor | None:
+        """
+        Optional lipid-projected spectrum used as the second
+        input of the legacy YNet architecture.
+
+        Returns None when lipid projection is disabled.
+        """
+        return self.projected_spectra
 
     @property
     def batch_size(self) -> int:

@@ -89,4 +89,4 @@ subject_sampling:
 
 
 lipid_projection:
-  enabled: false
+  enabled: true
