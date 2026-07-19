@@ -28,20 +28,20 @@ metabolites:
       probability: 1.0
 
   frequency_shift:
-    mean_hz: 0.0
-    std_hz: 5.0
+    mean_hz: 1.78
+    std_hz: 52.9
 
   fwhm:
-    mean_hz: 15.0
-    std_hz: 8.0
+    mean_hz: 16.6
+    std_hz: 36.2
 
   # Frequency-independent global phase rotation applied only to the
   # simulated metabolite signal.
   #
   # phi_0 ~ Normal(mean_rad, std_rad)
   zero_order_phase:
-    mean_rad: 0.0
-    std_rad: 0.15
+    mean_rad: -0.21
+    std_rad: 1.22
 
   # Linear phase slope over frequency, applied only to the simulated
   # metabolite spectrum.
@@ -52,7 +52,7 @@ metabolites:
   #   phi_1 [rad/Hz] * f [Hz] = phase [rad]
   first_order_phase:
     mean_rad_per_hz: 0.0
-    std_rad_per_hz: 0.00025
+    std_rad_per_hz: 0.002
 
 
 noise:
@@ -65,8 +65,8 @@ noise:
   # normally distributed parameters, it has an explicit lower bound
   # because the required noise amplitude diverges as S/N approaches zero.
   snr:
-    mean: 5.5
-    std: 2.25
+    mean: 9
+    std: 14
     min: 1.0
 
 
@@ -80,7 +80,7 @@ lipids:
   n_random_fids: 10
 
   scaling:
-    mean: 35.05
+    mean: 2
     std: 17.475
 
 

@@ -576,51 +576,104 @@ def assemble_spectra(
         + clean_baseline_spectra
     ).contiguous()
 
-    pre_acquisition_input_spectra = (
-        clean_mixture_spectra
-        + noise.noise_spectra
-    ).contiguous()
-
-    pre_acquisition_target_spectra = (
-        clean_baseline_spectra
-    )
-
-    # Input and target are transformed together so that every
-    # batch item receives exactly the same sampled acquisition
-    # length in both tensors.
+        # Transform all required components with exactly the same
+    # sampled acquisition length.
     #
-    # Input:
-    #     metabolites + water + lipids + receiver noise
-    #
-    # Target:
-    #     water + lipids
+    # Channels:
+    #   0: clean metabolites + water + lipids
+    #   1: clean water + lipids
+    #   2: clean metabolites
+    #   3: unscaled receiver noise
     stacked_spectra = torch.stack(
         (
-            pre_acquisition_input_spectra,
-            pre_acquisition_target_spectra,
+            clean_mixture_spectra,
+            clean_baseline_spectra,
+            clean_metabolite_spectra,
+            noise.noise_spectra,
         ),
         dim=1,
     )
 
-    acquisition_result = (
-        simulate_acquisition_length(
-            spectra=stacked_spectra,
-            config=config,
-            generator=generator,
-        )
+    acquisition_result = simulate_acquisition_length(
+        spectra=stacked_spectra,
+        config=config,
+        generator=generator,
     )
 
-    mixture_spectra = (
-        acquisition_result
-        .spectra[:, 0, :]
+    acquired_clean_mixture_spectra = (
+        acquisition_result.spectra[:, 0, :]
         .contiguous()
     )
 
     baseline_spectra = (
-        acquisition_result
-        .spectra[:, 1, :]
+        acquisition_result.spectra[:, 1, :]
         .contiguous()
     )
+
+    acquired_metabolite_spectra = (
+        acquisition_result.spectra[:, 2, :]
+        .contiguous()
+    )
+
+    acquired_unscaled_noise_spectra = (
+        acquisition_result.spectra[:, 3, :]
+        .contiguous()
+    )
+
+    acquired_n_timepoints = (
+        acquisition_result.acquired_n_timepoints
+        .contiguous()
+    )
+
+    # Phase-invariant metabolite peak.
+    # Shape: (batch_size, 1)
+    metabolite_peak = _maximum_absolute_value(
+        acquired_metabolite_spectra,
+        description="Acquired clean metabolite spectra",
+    )
+
+    # LCModel-compatible noise estimate based on the RMS of the
+    # real receiver-noise component.
+    #
+    # Shape: (batch_size, 1)
+    current_noise_rms = torch.sqrt(
+        torch.mean(
+            acquired_unscaled_noise_spectra.real.square(),
+            dim=-1,
+            keepdim=True,
+        )
+    )
+
+    if torch.any(
+        ~torch.isfinite(current_noise_rms)
+        | (current_noise_rms <= 0)
+    ):
+        raise RuntimeError(
+            "Acquired receiver noise contains invalid RMS values."
+        )
+
+    target_noise_rms = (
+        metabolite_peak
+        / (
+            2.0
+            * noise.snr[:, None]
+        )
+    )
+
+    noise_scaling = (
+        target_noise_rms
+        / current_noise_rms
+    )
+
+    scaled_noise_spectra = (
+        acquired_unscaled_noise_spectra
+        * noise_scaling
+    ).contiguous()
+
+    mixture_spectra = (
+        acquired_clean_mixture_spectra
+        + scaled_noise_spectra
+    ).contiguous()
 
     acquired_n_timepoints = (
         acquisition_result

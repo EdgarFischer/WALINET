@@ -8,7 +8,6 @@ Für paper:
 * Statt den exact modes LCModel basis nehmen! Ist besser an die Realität angepasst
 * simulations on the fly!
 * Extrapolation warning masks after fitting!
-* Zeigen das on the fly mit L2 praktisch schwer machbar ist
 * Bei inference lipid proj nicht mehr berechnen zu müssen spart Zeit!
 * Tumor metaboliten nur mit gewisser Wahrscheinlichkeit überhaupt ziehen
 * Parameter an ALLE Lcmodel ausgaben anpassen: FWHM, metabos, etc etc
