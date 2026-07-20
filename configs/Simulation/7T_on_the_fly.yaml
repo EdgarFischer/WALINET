@@ -12,9 +12,11 @@ acquisition:
   max_acquired_n_timepoints: 840
 
   # Larmor frequency of the acquisition.
-  # This value is not used during simulation.
-  # It is stored for documentation purposes and to enable Hz↔ppm
-  # conversions for visualization, analysis, and interfacing with LCModel.
+  #
+  # Used by the configuration builder to convert ppm-based
+  # frequency parameters into the simulator's internal unit Hz.
+  #
+  # hz_per_ppm = nmr_frequency_hz / 1e6
   nmr_frequency_hz: 297222931
 
 
@@ -27,32 +29,33 @@ metabolites:
     - config: "Metabos_healthy.yaml"
       probability: 1.0
 
+  # Global frequency shift in ppm.
+  #
+  # Internally converted to Hz by the configuration builder.
   frequency_shift:
-    mean_hz: 1.78
-    std_hz: 52.9
+    mean_ppm: 0.00598877
+    std_ppm: 0.17798088
 
+  # Spectral FWHM in ppm.
+  #
+  # Internally converted to Hz by the configuration builder.
   fwhm:
-    mean_hz: 16.6
-    std_hz: 36.2
+    mean_ppm: 0.05585033
+    std_ppm: 0.12179410
 
-  # Frequency-independent global phase rotation applied only to the
-  # simulated metabolite signal.
+  # Frequency-independent global phase rotation.
   #
-  # phi_0 ~ Normal(mean_rad, std_rad)
+  # Internally converted from degrees to radians.
   zero_order_phase:
-    mean_rad: -0.21
-    std_rad: 1.22
+    mean_deg: -12.03211370
+    std_deg: 69.90085101
 
-  # Linear phase slope over frequency, applied only to the simulated
-  # metabolite spectrum.
+  # Linear phase slope over frequency.
   #
-  # phi(f) = phi_0 + phi_1 * f
-  #
-  # phi_1 is expressed in rad/Hz, so that:
-  #   phi_1 [rad/Hz] * f [Hz] = phase [rad]
+  # Internally converted from deg/ppm to rad/Hz.
   first_order_phase:
-    mean_rad_per_hz: 0.0
-    std_rad_per_hz: 0.002
+    mean_deg_per_ppm: 0.0
+    std_deg_per_ppm: 34.05923904
 
 
 noise:
@@ -60,10 +63,6 @@ noise:
   #
   # S/N = maximum metabolite peak /
   #       (2 * RMS(receiver noise))
-  #
-  # S/N is sampled from a normal distribution. Unlike the other
-  # normally distributed parameters, it has an explicit lower bound
-  # because the required noise amplitude diverges as S/N approaches zero.
   snr:
     mean: 9
     std: 14
