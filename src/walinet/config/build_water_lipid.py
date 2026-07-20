@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from .schema_water_lipid import (
@@ -14,11 +15,80 @@ from .schema_water_lipid import (
 )
 
 
+def _calculate_hz_per_ppm(
+    nmr_frequency_hz: float,
+) -> float:
+    """
+    Calculate the frequency difference in Hz corresponding to 1 ppm.
+
+    Example
+    -------
+    At approximately 7 T proton frequency:
+
+        297222931 Hz / 1e6
+        = 297.222931 Hz/ppm
+    """
+    nmr_frequency_hz = float(
+        nmr_frequency_hz
+    )
+
+    if (
+        not math.isfinite(nmr_frequency_hz)
+        or nmr_frequency_hz <= 0
+    ):
+        raise ValueError(
+            "acquisition.nmr_frequency_hz must be finite "
+            "and greater than zero."
+        )
+
+    return (
+        nmr_frequency_hz
+        / 1e6
+    )
+
+
+def _ppm_to_hz(
+    value_ppm: float,
+    *,
+    hz_per_ppm: float,
+) -> float:
+    """
+    Convert a frequency offset from ppm to Hz.
+
+    The sign is preserved:
+
+        positive ppm offset -> positive Hz offset
+        negative ppm offset -> negative Hz offset
+    """
+    value_ppm = float(
+        value_ppm
+    )
+
+    if not math.isfinite(
+        value_ppm
+    ):
+        raise ValueError(
+            "Water-extraction frequency offsets in ppm "
+            "must be finite."
+        )
+
+    return (
+        value_ppm
+        * hz_per_ppm
+    )
+
+
 def validate_water_lipid_extraction_config(
     cfg: WaterLipidExtractionConfig,
 ) -> None:
     """
     Validate a water/lipid preprocessing configuration.
+
+    The typed runtime configuration continues to use Hz internally:
+
+        water_extraction.bandwidth
+        water_extraction.min_freq
+        water_extraction.max_freq
     """
 
     # ---------------------------------------------------------
@@ -79,9 +149,25 @@ def validate_water_lipid_extraction_config(
     # ---------------------------------------------------------
     # Water extraction
     # ---------------------------------------------------------
-    if cfg.water_extraction.bandwidth <= 0:
+    bandwidth_hz = float(
+        cfg.water_extraction.bandwidth
+    )
+
+    min_freq_hz = float(
+        cfg.water_extraction.min_freq
+    )
+
+    max_freq_hz = float(
+        cfg.water_extraction.max_freq
+    )
+
+    if (
+        not math.isfinite(bandwidth_hz)
+        or bandwidth_hz <= 0
+    ):
         raise ValueError(
-            "water_extraction.bandwidth must be > 0."
+            "water_extraction.bandwidth must be finite "
+            "and > 0."
         )
 
     if cfg.water_extraction.hsvd_components <= 0:
@@ -90,12 +176,34 @@ def validate_water_lipid_extraction_config(
         )
 
     if (
-        cfg.water_extraction.min_freq
-        >= cfg.water_extraction.max_freq
+        not math.isfinite(min_freq_hz)
+        or not math.isfinite(max_freq_hz)
     ):
+        raise ValueError(
+            "water_extraction.min_freq and "
+            "water_extraction.max_freq must be finite."
+        )
+
+    if min_freq_hz >= max_freq_hz:
         raise ValueError(
             "water_extraction.min_freq must be smaller than "
             "water_extraction.max_freq."
+        )
+
+    nyquist_hz = (
+        bandwidth_hz
+        / 2.0
+    )
+
+    if (
+        min_freq_hz < -nyquist_hz
+        or max_freq_hz > nyquist_hz
+    ):
+        raise ValueError(
+            "The water-extraction frequency interval exceeds "
+            "the acquisition frequency range:\n"
+            f"  allowed: [{-nyquist_hz}, {nyquist_hz}] Hz\n"
+            f"  found:   [{min_freq_hz}, {max_freq_hz}] Hz"
         )
 
     if cfg.water_extraction.parallel_jobs <= 0:
@@ -183,6 +291,32 @@ def build_water_lipid_extraction_config(
     Build a typed water/lipid extraction configuration from a
     dictionary loaded from YAML.
 
+    The YAML uses human-readable acquisition and frequency units:
+
+        acquisition.bandwidth_hz:
+            Hz
+
+        acquisition.nmr_frequency_hz:
+            Hz
+
+        water_extraction.min_frequency_offset_ppm:
+            ppm offset relative to the internal spectral center
+
+        water_extraction.max_frequency_offset_ppm:
+            ppm offset relative to the internal spectral center
+
+    The builder converts the ppm offsets to Hz. The existing schema
+    and all downstream preprocessing code therefore remain unchanged:
+
+        WaterExtractionCfg.bandwidth:
+            Hz
+
+        WaterExtractionCfg.min_freq:
+            Hz
+
+        WaterExtractionCfg.max_freq:
+            Hz
+
     Relative data.base_dir paths are resolved relative to the
     directory containing the YAML configuration.
     """
@@ -201,7 +335,9 @@ def build_water_lipid_extraction_config(
     paths_raw = data_raw["paths"]
 
     base_dir = Path(
-        str(data_raw["base_dir"])
+        str(
+            data_raw["base_dir"]
+        )
     ).expanduser()
 
     if (
@@ -231,7 +367,9 @@ def build_water_lipid_extraction_config(
     )
 
     data = WaterLipidDataCfg(
-        base_dir=str(base_dir),
+        base_dir=str(
+            base_dir
+        ),
         subjects=[
             str(subject)
             for subject in data_raw["subjects"]
@@ -240,23 +378,72 @@ def build_water_lipid_extraction_config(
     )
 
     # ---------------------------------------------------------
-    # Water extraction
+    # Acquisition
+    #
+    # These values are required for the YAML-to-runtime unit
+    # conversion but are not added to the existing typed schema.
     # ---------------------------------------------------------
-    water_raw = raw["water_extraction"]
+    acquisition_raw = raw[
+        "acquisition"
+    ]
+
+    bandwidth_hz = float(
+        acquisition_raw[
+            "bandwidth_hz"
+        ]
+    )
+
+    if (
+        not math.isfinite(bandwidth_hz)
+        or bandwidth_hz <= 0
+    ):
+        raise ValueError(
+            "acquisition.bandwidth_hz must be finite "
+            "and greater than zero."
+        )
+
+    hz_per_ppm = _calculate_hz_per_ppm(
+        acquisition_raw[
+            "nmr_frequency_hz"
+        ]
+    )
+
+    # ---------------------------------------------------------
+    # Water extraction
+    #
+    # YAML:
+    #     frequency offsets in ppm
+    #
+    # Internal WaterExtractionCfg:
+    #     frequency offsets in Hz
+    # ---------------------------------------------------------
+    water_raw = raw[
+        "water_extraction"
+    ]
+
+    min_freq_hz = _ppm_to_hz(
+        water_raw[
+            "min_frequency_offset_ppm"
+        ],
+        hz_per_ppm=hz_per_ppm,
+    )
+
+    max_freq_hz = _ppm_to_hz(
+        water_raw[
+            "max_frequency_offset_ppm"
+        ],
+        hz_per_ppm=hz_per_ppm,
+    )
 
     water_extraction = WaterExtractionCfg(
-        bandwidth=float(
-            water_raw["bandwidth"]
-        ),
+        bandwidth=bandwidth_hz,
         hsvd_components=int(
-            water_raw["hsvd_components"]
+            water_raw[
+                "hsvd_components"
+            ]
         ),
-        min_freq=float(
-            water_raw["min_freq"]
-        ),
-        max_freq=float(
-            water_raw["max_freq"]
-        ),
+        min_freq=min_freq_hz,
+        max_freq=max_freq_hz,
         parallel_jobs=int(
             water_raw.get(
                 "parallel_jobs",
@@ -274,7 +461,9 @@ def build_water_lipid_extraction_config(
     # ---------------------------------------------------------
     # Resources
     # ---------------------------------------------------------
-    resources_raw = raw["resources"]
+    resources_raw = raw[
+        "resources"
+    ]
 
     resources = WaterLipidResourcesCfg(
         simulation_resources_filename=str(
@@ -334,7 +523,7 @@ def build_water_lipid_extraction_config(
     )
 
     # ---------------------------------------------------------
-    # Complete configuration
+    # Complete internal runtime configuration
     # ---------------------------------------------------------
     cfg = WaterLipidExtractionConfig(
         version=version,
