@@ -41,7 +41,8 @@ class AssembledSpectra:
     water_spectra:
         (batch_size, n_timepoints)
 
-        Scaled water spectra before acquisition-length simulation.
+        Frequency-shifted and scaled water spectra before
+        acquisition-length simulation.
 
     lipid_spectra:
         (batch_size, n_timepoints)
@@ -375,6 +376,134 @@ def _validate_complex_batch(
         )
 
 
+def _apply_frequency_shift_to_shifted_spectra(
+    *,
+    spectra: torch.Tensor,
+    frequency_shifts_hz: torch.Tensor,
+    bandwidth_hz: float,
+) -> torch.Tensor:
+    """
+    Apply one frequency shift per batch item to fft-shifted spectra.
+
+    The operation uses the same sign convention as the metabolite
+    simulation:
+
+        FID(t) -> FID(t) * exp(+i * 2*pi*delta_f*t)
+
+    Parameters
+    ----------
+    spectra:
+        FFT-shifted complex spectra with shape (B, T).
+
+    frequency_shifts_hz:
+        Frequency shifts with shape (B,).
+
+    bandwidth_hz:
+        Acquisition bandwidth in Hz.
+    """
+    if spectra.ndim != 2:
+        raise ValueError(
+            "spectra must have shape (B, T), "
+            f"but found {tuple(spectra.shape)}."
+        )
+
+    if not torch.is_complex(
+        spectra
+    ):
+        raise TypeError(
+            "spectra must be complex-valued."
+        )
+
+    batch_size, n_timepoints = (
+        spectra.shape
+    )
+
+    if tuple(
+        frequency_shifts_hz.shape
+    ) != (batch_size,):
+        raise ValueError(
+            "frequency_shifts_hz must have shape "
+            f"{(batch_size,)}, but found "
+            f"{tuple(frequency_shifts_hz.shape)}."
+        )
+
+    if (
+        frequency_shifts_hz.device
+        != spectra.device
+    ):
+        raise ValueError(
+            "frequency_shifts_hz and spectra must be "
+            "on the same device."
+        )
+
+    if not torch.isfinite(
+        frequency_shifts_hz
+    ).all():
+        raise ValueError(
+            "frequency_shifts_hz contains non-finite values."
+        )
+
+    bandwidth_hz = float(
+        bandwidth_hz
+    )
+
+    if (
+        not math.isfinite(bandwidth_hz)
+        or bandwidth_hz <= 0
+    ):
+        raise ValueError(
+            "bandwidth_hz must be finite and > 0."
+        )
+
+    time_axis_seconds = (
+        torch.arange(
+            n_timepoints,
+            device=spectra.device,
+            dtype=spectra.real.dtype,
+        )
+        / bandwidth_hz
+    )
+
+    # Input spectra are fft-shifted. Convert them back to the
+    # corresponding FIDs before applying the frequency shift.
+    fids = torch.fft.ifft(
+        torch.fft.ifftshift(
+            spectra,
+            dim=-1,
+        ),
+        dim=-1,
+    )
+
+    phase_angles = (
+        2.0
+        * math.pi
+        * frequency_shifts_hz[:, None]
+        * time_axis_seconds[None, :]
+    )
+
+    phase_factor = torch.polar(
+        torch.ones_like(
+            phase_angles
+        ),
+        phase_angles,
+    )
+
+    shifted_fids = (
+        fids
+        * phase_factor
+    )
+
+    shifted_spectra = torch.fft.fftshift(
+        torch.fft.fft(
+            shifted_fids,
+            dim=-1,
+        ),
+        dim=-1,
+    )
+
+    return shifted_spectra.contiguous()
+
+
 def assemble_spectra(
     *,
     sampled: SampledResources,
@@ -391,20 +520,23 @@ def assemble_spectra(
     Processing
     ----------
     1. Use the clean metabolite spectrum as amplitude reference.
-    2. Normalize each sampled water spectrum by its own maximum.
-    3. Normalize each mixed lipid spectrum by its own maximum.
-    4. Sample positive-normal water and lipid scaling factors,
+    2. Apply the metabolite frequency shift to the sampled water.
+    3. Normalize each shifted water spectrum by its own maximum.
+    4. Normalize each mixed lipid spectrum by its own maximum.
+    5. Sample positive-normal water and lipid scaling factors,
        then apply both factors.
-    5. Add clean metabolites, water, and lipids.
-    6. Add receiver noise to the complete input mixture.
+    6. Add clean metabolites, shifted water, and unshifted lipids.
     7. Build the clean water-plus-lipid baseline target.
     8. Apply the same sampled acquisition length and zero-filling
-       operation to input and target.
-    9. Optionally apply the frequency-domain lipid projection to
-       the final input.
+       operation to all required components.
+    9. Scale and add receiver noise to the complete input mixture.
+    10. Optionally apply the frequency-domain lipid projection to
+        the final input.
 
     Water and lipids are already fft-shifted spectra when entering
-    this function.
+    this function. The water resources are assumed to be B0-centered
+    before they are stored. Lipids keep their measured frequency
+    distribution and are not shifted here.
     """
     device = sampled.device
 
@@ -497,6 +629,24 @@ def assemble_spectra(
         metabolites.clean_spectra
     )
 
+    # The sampled global frequency shift has already been applied
+    # to the metabolites. Apply the identical shift to the water,
+    # while leaving the spatially leaked lipid signal unchanged.
+    shifted_water_spectra = (
+        _apply_frequency_shift_to_shifted_spectra(
+            spectra=raw_water_spectra,
+            frequency_shifts_hz=(
+                metabolites
+                .frequency_shifts_hz
+            ),
+            bandwidth_hz=(
+                config
+                .acquisition
+                .bandwidth_hz
+            ),
+        )
+    )
+
     metabolite_maximum = (
         _maximum_absolute_value(
             clean_metabolite_spectra,
@@ -508,8 +658,10 @@ def assemble_spectra(
 
     water_maximum = (
         _maximum_absolute_value(
-            raw_water_spectra,
-            description="Water spectra",
+            shifted_water_spectra,
+            description=(
+                "Frequency-shifted water spectra"
+            ),
         )
     )
 
@@ -553,7 +705,7 @@ def assemble_spectra(
     )
 
     water_spectra = (
-        raw_water_spectra
+        shifted_water_spectra
         / water_maximum
         * metabolite_maximum
         * water_scaling[:, None]
@@ -576,7 +728,7 @@ def assemble_spectra(
         + clean_baseline_spectra
     ).contiguous()
 
-        # Transform all required components with exactly the same
+    # Transform all required components with exactly the same
     # sampled acquisition length.
     #
     # Channels:
@@ -674,12 +826,6 @@ def assemble_spectra(
         acquired_clean_mixture_spectra
         + scaled_noise_spectra
     ).contiguous()
-
-    acquired_n_timepoints = (
-        acquisition_result
-        .acquired_n_timepoints
-        .contiguous()
-    )
 
     projected_spectra: (
         torch.Tensor | None
