@@ -86,7 +86,7 @@ metabolites:
       std: 1.5
 
   Lac:
-    enabled: true
+    enabled: false
     basis_component: Lac
     distribution:
       type: normal
@@ -110,7 +110,7 @@ metabolites:
       std: 1.0
 
   Ala:
-    enabled: true
+    enabled: false
     basis_component: Ala
     distribution:
       type: normal
@@ -150,7 +150,7 @@ metabolites:
       std: 1.5
 
   Act:
-    enabled: true
+    enabled: false
     basis_component: Act
     distribution:
       type: normal
@@ -167,7 +167,7 @@ metabolites:
       std: 0.5
 
   Gly:
-    enabled: true
+    enabled: false
     basis_component: Gly
     distribution:
       type: normal

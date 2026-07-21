@@ -1,7 +1,7 @@
 run:
   name: "7T_on_the_fly_test_2"
   seed: 42
-  gpu: 2
+  gpu: 3
 
 data:
   base_dir: "../../data/7T/NoB0Correction"
