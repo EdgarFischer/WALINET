@@ -1,0 +1,408 @@
+version: 2
+
+description: >
+  WALINET metabolite concentration configuration. Metabolites are
+  sampled independently from a common positive mixture model consisting
+  of a zero-truncated normal component and a lognormal component.
+  The mixture weights are fixed globally in the simulation code and are
+  not configured separately for individual metabolites.
+
+sampling:
+  independent: true
+  default_distribution: positive_mixture
+
+
+metabolites:
+
+  Act:
+    enabled: false
+    basis_component: Act
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: -0.111572
+        log_sigma: 0.472381
+
+      minimum: 0.0
+
+
+  Ala:
+    enabled: false
+    basis_component: Ala
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: 1.312774
+        log_sigma: 0.770277
+
+      minimum: 0.0
+
+
+  Asp:
+    enabled: true
+    basis_component: Asp
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0136
+        std: 0.00768
+
+      lognormal:
+        log_mu: -4.61
+        log_sigma: 2.35
+
+      minimum: 0.0
+
+
+  BHB:
+    enabled: false
+    basis_component: null
+    unavailable_reason: Not present in the current LCModel basis
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: -1.039721
+        log_sigma: 0.832555
+
+      minimum: 0.0
+
+
+  Cr:
+    enabled: true
+    basis_component: Cr
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0157
+        std: 0.0107
+
+      lognormal:
+        log_mu: -4.16
+        log_sigma: 0.629
+
+      minimum: 0.0
+
+
+  GABA:
+    enabled: true
+    basis_component: GABA
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.00588
+        std: 0.004
+
+      lognormal:
+        log_mu: -5.14
+        log_sigma: 0.067
+
+      minimum: 0.0
+
+
+  Glc:
+    enabled: true
+    basis_component: Glc
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.00591
+        std: 0.00602
+
+      lognormal:
+        log_mu: -5.13
+        log_sigma: 1.04
+
+      minimum: 0.0
+
+
+  Gln:
+    enabled: true
+    basis_component: Gln
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0105
+        std: 0.0102
+
+      lognormal:
+        log_mu: -4.56
+        log_sigma: 0.875
+
+      minimum: 0.0
+
+
+  Glu:
+    enabled: true
+    basis_component: Glu
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0288
+        std: 0.0174
+
+      lognormal:
+        log_mu: -3.55
+        log_sigma: 0.607
+
+      minimum: 0.0
+
+
+  Gly:
+    enabled: false
+    basis_component: Gly
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: -1.039721
+        log_sigma: 0.832555
+
+      minimum: 0.0
+
+
+  GPC:
+    enabled: true
+    basis_component: GPC
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.00652
+        std: 0.0038
+
+      lognormal:
+        log_mu: -5.03
+        log_sigma: 0.575
+
+      minimum: 0.0
+
+
+  GSH:
+    enabled: true
+    basis_component: GSH
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.00615
+        std: 0.00479
+
+      lognormal:
+        log_mu: -5.09
+        log_sigma: 0.733
+
+      minimum: 0.0
+
+
+  Ins:
+    enabled: true
+    basis_component: Ins
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0196
+        std: 0.0104
+
+      lognormal:
+        log_mu: -3.93
+        log_sigma: 0.521
+
+      minimum: 0.0
+
+
+  Lac:
+    enabled: false
+    basis_component: Lac
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: -3.000707
+        log_sigma: 2.148283
+
+      minimum: 0.0
+
+
+  NAA:
+    enabled: true
+    basis_component: NAA
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0406
+        std: 0.0165
+
+      lognormal:
+        log_mu: -3.2
+        log_sigma: 0.415
+
+      minimum: 0.0
+
+
+  NAAG:
+    enabled: true
+    basis_component: NAAG
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0101
+        std: 0.00701
+
+      lognormal:
+        log_mu: -4.6
+        log_sigma: 0.677
+
+      minimum: 0.0
+
+
+  PCh:
+    enabled: true
+    basis_component: PCh
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.00419
+        std: 0.00412
+
+      lognormal:
+        log_mu: -5.48
+        log_sigma: 0.931
+
+      minimum: 0.0
+
+
+  PCr:
+    enabled: true
+    basis_component: PCr
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0169
+        std: 0.012
+
+      lognormal:
+        log_mu: -4.08
+        log_sigma: 0.671
+
+      minimum: 0.0
+
+
+  Pyr:
+    enabled: false
+    basis_component: null
+    unavailable_reason: Not present in the current LCModel basis
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: -1.039721
+        log_sigma: 0.832555
+
+      minimum: 0.0
+
+
+  Scy:
+    enabled: true
+    basis_component: Scyllo
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.000168
+        std: 0.000541
+
+      lognormal:
+        log_mu: -8.69
+        log_sigma: 2.49
+
+      minimum: 0.0
+
+
+  Suc:
+    enabled: false
+    basis_component: null
+    unavailable_reason: Not present in the current LCModel basis
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: null
+        std: null
+
+      lognormal:
+        log_mu: -1.039721
+        log_sigma: 0.832555
+
+      minimum: 0.0
+
+
+  Tau:
+    enabled: true
+    basis_component: Tau
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.00566
+        std: 0.00493
+
+      lognormal:
+        log_mu: -5.17
+        log_sigma: 0.746
+
+      minimum: 0.0
+
+
+  THG:
+    enabled: true
+    basis_component: TwoHG
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.0191
+        std: 0.0225
+
+      lognormal:
+        log_mu: -3.96
+        log_sigma: 1.06
+
+      minimum: 0.0

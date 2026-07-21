@@ -2,6 +2,7 @@
 # Input: metabolites + water + lipids + receiver noise
 
 # src/walinet/training_data/spectrum_assembly.py
+# Distribution refactor: mixture_v2
 
 from __future__ import annotations
 
@@ -12,6 +13,10 @@ import torch
 
 from walinet.config.schema_simulation import (
     SimulationConfig,
+)
+from walinet.training_data.distributions import (
+    sample_distribution,
+    validate_generator_device,
 )
 from walinet.training_data.acquisition_length import (
     simulate_acquisition_length,
@@ -164,139 +169,6 @@ class AssembledSpectra:
     @property
     def device(self) -> torch.device:
         return self.mixture_spectra.device
-
-
-def _validate_generator_device(
-    *,
-    generator: torch.Generator,
-    device: torch.device,
-) -> None:
-    generator_device = torch.device(
-        generator.device
-    )
-
-    if generator_device.type != device.type:
-        raise ValueError(
-            "Generator and signals must use the same "
-            "device type:\n"
-            f"  generator: {generator_device}\n"
-            f"  signals:   {device}"
-        )
-
-    if (
-        device.type == "cuda"
-        and generator_device.index is not None
-        and device.index is not None
-        and generator_device.index != device.index
-    ):
-        raise ValueError(
-            "Generator and signals must use the same "
-            "CUDA device:\n"
-            f"  generator: {generator_device}\n"
-            f"  signals:   {device}"
-        )
-
-
-def _sample_normal(
-    *,
-    mean: float,
-    std: float,
-    batch_size: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    generator: torch.Generator,
-) -> torch.Tensor:
-    """
-    Sample from a normal distribution.
-    """
-    if not math.isfinite(
-        mean
-    ):
-        raise ValueError(
-            "Normal mean must be finite."
-        )
-
-    if (
-        not math.isfinite(
-            std
-        )
-        or std < 0
-    ):
-        raise ValueError(
-            "Normal std must be finite and >= 0."
-        )
-
-    if std == 0:
-        return torch.full(
-            (batch_size,),
-            fill_value=mean,
-            device=device,
-            dtype=dtype,
-        )
-
-    return (
-        mean
-        + std
-        * torch.randn(
-            (batch_size,),
-            generator=generator,
-            device=device,
-            dtype=dtype,
-        )
-    )
-
-
-def _sample_positive_normal(
-    *,
-    mean: float,
-    std: float,
-    batch_size: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    generator: torch.Generator,
-) -> torch.Tensor:
-    """
-    Sample from a normal distribution truncated to values > 0.
-
-    Non-positive draws are rejected and sampled again. They are
-    not clipped to zero.
-    """
-    if std == 0 and mean <= 0:
-        raise ValueError(
-            "A positive normal sample is impossible when "
-            "std == 0 and mean <= 0."
-        )
-
-    values = _sample_normal(
-        mean=mean,
-        std=std,
-        batch_size=batch_size,
-        device=device,
-        dtype=dtype,
-        generator=generator,
-    )
-
-    invalid = values <= 0
-
-    while torch.any(
-        invalid
-    ):
-        n_invalid = int(
-            invalid.sum().item()
-        )
-
-        values[invalid] = _sample_normal(
-            mean=mean,
-            std=std,
-            batch_size=n_invalid,
-            device=device,
-            dtype=dtype,
-            generator=generator,
-        )
-
-        invalid = values <= 0
-
-    return values.contiguous()
 
 
 def _maximum_absolute_value(
@@ -523,8 +395,8 @@ def assemble_spectra(
     2. Apply the metabolite frequency shift to the sampled water.
     3. Normalize each shifted water spectrum by its own maximum.
     4. Normalize each mixed lipid spectrum by its own maximum.
-    5. Sample positive-normal water and lipid scaling factors,
-       then apply both factors.
+    5. Sample the configured positive water and lipid scaling
+       distributions, then apply both factors.
     6. Add clean metabolites, shifted water, and unshifted lipids.
     7. Build the clean water-plus-lipid baseline target.
     8. Apply the same sampled acquisition length and zero-filling
@@ -540,7 +412,7 @@ def assemble_spectra(
     """
     device = sampled.device
 
-    _validate_generator_device(
+    validate_generator_device(
         generator=generator,
         device=device,
     )
@@ -678,31 +550,34 @@ def assemble_spectra(
         .dtype
     )
 
-    water_scaling = _sample_positive_normal(
-        mean=float(
-            config.water.scaling.mean
-        ),
-        std=float(
-            config.water.scaling.std
-        ),
-        batch_size=batch_size,
+    water_scaling_cfg = (
+        config
+        .water
+        .scaling
+    )
+
+    water_scaling = sample_distribution(
+        distribution=water_scaling_cfg.distribution,
+        shape=(batch_size,),
         device=device,
         dtype=real_dtype,
         generator=generator,
     )
 
-    lipid_scaling = _sample_positive_normal(
-        mean=float(
-            config.lipids.scaling.mean
-        ),
-        std=float(
-            config.lipids.scaling.std
-        ),
-        batch_size=batch_size,
+    lipid_scaling_cfg = (
+        config
+        .lipids
+        .scaling
+    )
+
+    lipid_scaling = sample_distribution(
+        distribution=lipid_scaling_cfg.distribution,
+        shape=(batch_size,),
         device=device,
         dtype=real_dtype,
         generator=generator,
     )
+
 
     water_spectra = (
         shifted_water_spectra

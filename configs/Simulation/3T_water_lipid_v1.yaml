@@ -1,7 +1,7 @@
 version: "water_lipid_v1"
 
 data:
-  base_dir: "../../data/7T/B0corrected_wo_LipidMask"
+  base_dir: "../../data/7T/NoB0Correction"
 
   subjects: ["Vol1_Brisbane", "Vol3_Brisbane", "Vol4_Brisbane", "Vol5_Brisbane", "Vol6_Brisbane", "Vol1_London", "Vol2_London", "Vol3_London", "Vol4_London", "Vol5_London", "Vol5", "Vol6", "Vol7", "Vol8", "Vol9"]
 
@@ -18,8 +18,8 @@ acquisition:
 water_extraction:
   hsvd_components: 32
 
-  min_frequency_offset_ppm: -1.35 # this means upper bound 4.65 - min_frequency_offset-ppm
-  max_frequency_offset_ppm: 0.51 # this means lower bound 4.65 - max_frequency_offset_ppm
+  min_frequency_offset_ppm: -1.34579118
+  max_frequency_offset_ppm: 0.67289559
 
   parallel_jobs: 20
   slice_batch_size: 3

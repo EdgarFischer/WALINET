@@ -8,62 +8,106 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from walinet.parameter_calibration.compute_statistics import (
-    calculate_pooled_median_iqr,
     extract_valid_voxels,
 )
 from walinet.parameter_calibration.load_data import (
     load_subject_maps,
 )
 from walinet.parameter_calibration.plot_statistics import (
-    plot_pooled_histogram_with_model,
+    compare_positive_models,
+    compare_symmetric_models,
 )
 
 
 DistributionModel = Literal[
-    "normal",
-    "truncated_normal",
-    "lognormal",
+    "positive_mixture",
+    "symmetric_mixture",
 ]
-
-ParameterSpace = Literal[
-    "linear",
-    "log",
-]
-
-# For a normally distributed variable:
-# IQR = 1.349 * sigma
-NORMAL_IQR_FACTOR = 1.349
 
 
 @dataclass(frozen=True)
 class ParameterCalibrationResult:
     """
-    Results produced by the parameter-calibration pipeline.
+    Result of the common mixture-model calibration.
 
-    For normal and truncated-normal models:
+    Positive parameters
+    -------------------
+    ``distribution == "positive_mixture"`` uses:
 
-        model_mean = linear-space mean parameter
-        model_std  = linear-space standard deviation
+        0.5 * ZeroTruncatedNormal(normal_mu, normal_sigma)
+        +
+        0.5 * LogNormal(log_mu, log_sigma)
 
-    For lognormal models:
+    Signed parameters
+    -----------------
+    ``distribution == "symmetric_mixture"`` uses:
 
-        model_mean = log_mu
-        model_std  = log_sigma
+        0.5 * Normal(center, normal_sigma)
+        +
+        0.25 * positive LogNormal(log_mu, log_sigma)
+        +
+        0.25 * negative LogNormal(log_mu, log_sigma)
+
+    For the symmetric model, the lognormal distribution is calibrated
+    on ``abs(values - center)``, where ``center`` is the pooled median.
     """
 
     maps: np.ndarray
     subject_values: dict[str, np.ndarray]
     pooled_values: np.ndarray
 
+    distribution: DistributionModel
+
     median: float
     iqr: float
 
-    model_mean: float
-    model_std: float
-    model_parameter_space: ParameterSpace
+    normal_mu: float
+    normal_sigma: float
+
+    log_mu: float
+    log_sigma: float
+    robust_log_sigma: float
+
+    center: float | None
+
+    normal_weight: float
+    lognormal_weight: float
+    positive_tail_weight: float | None
+    negative_tail_weight: float | None
+
+    plot_xmin: float
+    plot_xmax: float
 
     figure: plt.Figure
     axes: plt.Axes
+
+
+def _filter_subject_values(
+    subject_values: dict[str, np.ndarray],
+    *,
+    positive_only: bool,
+) -> dict[str, np.ndarray]:
+    """Apply the same validity criterion to every subject array."""
+    filtered: dict[str, np.ndarray] = {}
+
+    for subject, values in subject_values.items():
+        values = np.asarray(
+            values,
+            dtype=np.float64,
+        )
+
+        valid = np.isfinite(
+            values
+        )
+
+        if positive_only:
+            valid &= values > 0
+
+        filtered[subject] = values[
+            valid
+        ]
+
+    return filtered
 
 
 def calibrate_parameter_from_maps(
@@ -74,122 +118,58 @@ def calibrate_parameter_from_maps(
     parameter_name: str,
     unit: str,
     extension: str = ".nii.gz",
-    distribution: DistributionModel = "normal",
-    std_iqr_factor: float = 2.0,
+    distribution: DistributionModel,
     xlabel: str | None = None,
     ylabel: str = "Probability density",
     title: str | None = None,
     bins: int | str = 50,
-    n_sigmas: float = 4.0,
+    plot_percentile: float = 99.5,
     x_limits: tuple[float, float] | None = None,
     save_path: str | Path | None = None,
     dpi: int = 300,
-    n_model_points: int = 1000,
-    print_decimals: int = 4,
+    n_model_points: int = 1200,
     show: bool = True,
 ) -> ParameterCalibrationResult:
     """
-    Load parameter maps, extract valid voxels, calculate pooled
-    statistics, print the results, and plot the pooled distribution.
+    Load parameter maps and calibrate the common simulation mixture.
 
-    Model calibration
-    -----------------
-    For ``distribution="normal"`` and
-    ``distribution="truncated_normal"``:
+    Supported models
+    ----------------
+    ``distribution="positive_mixture"``
+        For strictly positive parameters such as FWHM and SNR:
 
-        model_mean = median(values)
-        model_std  = std_iqr_factor * IQR(values)
+            0.5 * zero-truncated normal
+            +
+            0.5 * lognormal
 
-    For ``distribution="lognormal"``:
+        Calibration:
 
-        log_values = log(values)
-        model_mean = median(log_values)
-        model_std  = IQR(log_values) / 1.349
+            normal_mu = median(values)
+            normal_sigma = IQR(values) / 1.349
 
-    In the lognormal case, ``model_mean`` and ``model_std`` therefore
-    correspond to ``log_mu`` and ``log_sigma``. Only finite, strictly
-    positive values are used.
-
-    Parameters
-    ----------
-    base_paths:
-        Subject directories passed to ``load_subject_maps``.
-
-    relative_path:
-        Relative path of the parameter map within each subject
-        directory.
-
-    quality_mask:
-        Binary quality mask with the same shape as the loaded maps.
-
-    parameter_name:
-        Human-readable parameter name used in printed output.
-
-    unit:
-        Unit shown in the printed output and axis label.
-
-    extension:
-        File extension passed to ``load_subject_maps``.
-
-    distribution:
-        Probability model overlaid on the histogram.
-
-        Supported values:
-
-            "normal"
-            "truncated_normal"
-            "lognormal"
-
-    std_iqr_factor:
-        Factor used for normal and truncated-normal models:
-
-            model_std = std_iqr_factor * IQR
-
-        This argument is ignored for a lognormal model because its
-        scale is calculated as:
-
+            log_mu = median(log(values))
             log_sigma = IQR(log(values)) / 1.349
 
-    xlabel:
-        Optional custom x-axis label.
+    ``distribution="symmetric_mixture"``
+        For signed parameters such as frequency shift and phase:
 
-    ylabel:
-        Label of the y-axis.
+            0.5 * central normal
+            +
+            0.25 * positive lognormal tail
+            +
+            0.25 * negative lognormal tail
 
-    title:
-        Optional plot title.
+        Calibration:
 
-    bins:
-        Number of histogram bins or NumPy binning strategy.
+            center = median(values)
+            normal_sigma = IQR(values) / 1.349
 
-    n_sigmas:
-        Number of model standard deviations shown around the model
-        location. For a lognormal model, the corresponding range is
-        calculated in log space.
+            deviations = abs(values - center)
+            log_mu = median(log(deviations))
+            log_sigma = IQR(log(deviations)) / 1.349
 
-    x_limits:
-        Optional explicit x-axis limits.
-
-    save_path:
-        Optional path under which the plot is saved.
-
-    dpi:
-        Resolution used when saving raster images.
-
-    n_model_points:
-        Number of points used to draw the model density.
-
-    print_decimals:
-        Number of decimal places used for printed values.
-
-    show:
-        Whether to call ``plt.show()``.
-
-    Returns
-    -------
-    ParameterCalibrationResult:
-        Object containing maps, extracted values, statistics, model
-        parameters, figure, and axes.
+    The mixture weights are fixed globally and are not fitted separately
+    for individual parameters.
     """
     if not parameter_name.strip():
         raise ValueError(
@@ -202,36 +182,15 @@ def calibrate_parameter_from_maps(
         )
 
     valid_distributions = {
-        "normal",
-        "truncated_normal",
-        "lognormal",
+        "positive_mixture",
+        "symmetric_mixture",
     }
 
     if distribution not in valid_distributions:
         raise ValueError(
             f"Unsupported distribution: {distribution!r}. "
-            f"Supported values are: "
-            f"{sorted(valid_distributions)}."
+            f"Supported values are: {sorted(valid_distributions)}."
         )
-
-    if print_decimals < 0:
-        raise ValueError(
-            "print_decimals must be greater than or equal to zero."
-        )
-
-    # std_iqr_factor is only used for normal models.
-    if distribution != "lognormal":
-        std_iqr_factor = float(
-            std_iqr_factor
-        )
-
-        if (
-            not np.isfinite(std_iqr_factor)
-            or std_iqr_factor <= 0
-        ):
-            raise ValueError(
-                "std_iqr_factor must be finite and greater than zero."
-            )
 
     maps = load_subject_maps(
         base_paths=base_paths,
@@ -244,128 +203,59 @@ def calibrate_parameter_from_maps(
         quality_mask=quality_mask,
     )
 
+    positive_only = (
+        distribution == "positive_mixture"
+    )
+
+    subject_values = _filter_subject_values(
+        subject_values,
+        positive_only=positive_only,
+    )
+
     pooled_values = np.asarray(
         pooled_values,
         dtype=np.float64,
     )
 
-    # A lognormal model requires strictly positive values.
-    if distribution == "lognormal":
-        subject_values = {
-            subject: np.asarray(
-                values,
-                dtype=np.float64,
-            )[
-                np.isfinite(values)
-                & (np.asarray(values) > 0)
-            ]
-            for subject, values in subject_values.items()
-        }
-
-        positive_mask = (
-            np.isfinite(pooled_values)
-            & (pooled_values > 0)
-        )
-
-        number_removed = int(
-            pooled_values.size
-            - np.count_nonzero(positive_mask)
-        )
-
-        pooled_values = pooled_values[
-            positive_mask
-        ]
-
-        if pooled_values.size == 0:
-            raise ValueError(
-                "No positive finite pooled values are available "
-                "for lognormal calibration."
-            )
-
-        if number_removed > 0:
-            print(
-                f"Ignored {number_removed} non-positive or "
-                "non-finite values for lognormal calibration."
-            )
-
-    # Statistics on the original linear scale.
-    median, iqr = calculate_pooled_median_iqr(
+    pooled_valid = np.isfinite(
         pooled_values
     )
 
-    median = float(median)
-    iqr = float(iqr)
+    if positive_only:
+        pooled_valid &= pooled_values > 0
 
-    if not np.isfinite(iqr) or iqr <= 0:
+    number_removed = int(
+        pooled_values.size
+        - np.count_nonzero(
+            pooled_valid
+        )
+    )
+
+    pooled_values = pooled_values[
+        pooled_valid
+    ]
+
+    if pooled_values.size == 0:
+        if positive_only:
+            raise ValueError(
+                "No strictly positive finite pooled values are "
+                "available for positive-mixture calibration."
+            )
+
         raise ValueError(
-            "The pooled IQR must be finite and greater than zero.\n"
-            f"  median: {median}\n"
-            f"  IQR:    {iqr}"
+            "No finite pooled values are available for "
+            "symmetric-mixture calibration."
         )
 
-    if distribution == "lognormal":
-        # Robust lognormal calibration.
-        log_values = np.log(
-            pooled_values
+    if number_removed > 0:
+        criterion = (
+            "non-positive or non-finite"
+            if positive_only
+            else "non-finite"
         )
 
-        log_mu, log_iqr = calculate_pooled_median_iqr(
-            log_values
-        )
-
-        model_mean = float(log_mu)
-        model_std = float(
-            log_iqr / NORMAL_IQR_FACTOR
-        )
-        model_parameter_space: ParameterSpace = "log"
-
-    else:
-        # Deliberately broad robust normal calibration.
-        model_mean = median
-        model_std = float(
-            std_iqr_factor * iqr
-        )
-        model_parameter_space = "linear"
-
-    if (
-        not np.isfinite(model_mean)
-        or not np.isfinite(model_std)
-        or model_std <= 0
-    ):
-        raise ValueError(
-            "Invalid model parameters were calculated.\n"
-            f"  distribution: {distribution}\n"
-            f"  model_mean:   {model_mean}\n"
-            f"  model_std:    {model_std}"
-        )
-
-    print(
-        f"{parameter_name}:"
-    )
-    print(
-        f"Median: {median:.{print_decimals}f} {unit}"
-    )
-    print(
-        f"IQR:    {iqr:.{print_decimals}f} {unit}"
-    )
-
-    if distribution == "lognormal":
         print(
-            f"Model log-μ: {model_mean:.{print_decimals}f}"
-        )
-        print(
-            f"Model log-σ: {model_std:.{print_decimals}f}"
-        )
-        print(
-            f"Model median: "
-            f"{np.exp(model_mean):.{print_decimals}f} {unit}"
-        )
-    else:
-        print(
-            f"Model μ: {model_mean:.{print_decimals}f} {unit}"
-        )
-        print(
-            f"Model σ: {model_std:.{print_decimals}f} {unit}"
+            f"Ignored {number_removed} {criterion} values."
         )
 
     if xlabel is None:
@@ -378,34 +268,119 @@ def calibrate_parameter_from_maps(
             f"Pooled {parameter_name} distribution"
         )
 
-    figure, axes = plot_pooled_histogram_with_model(
-        pooled_values=pooled_values,
-        mean=model_mean,
-        std=model_std,
-        distribution=distribution,
-        xlabel=xlabel,
-        ylabel=ylabel,
-        title=title,
-        bins=bins,
-        n_sigmas=n_sigmas,
-        x_limits=x_limits,
-        save_path=save_path,
-        dpi=dpi,
-        n_model_points=n_model_points,
+    print(
+        f"\n{parameter_name} [{unit}]"
+    )
+    print(
+        "=" * (
+            len(parameter_name)
+            + len(unit)
+            + 3
+        )
     )
 
-    if show:
-        plt.show()
+    if distribution == "positive_mixture":
+        statistics = compare_positive_models(
+            pooled_values,
+            title=title,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            bins=bins,
+            truncated_normal_sigma_factor=1.0,
+            lognormal_sigma_factor=1.0,
+            plot_percentile=plot_percentile,
+            x_limits=x_limits,
+            save_path=save_path,
+            dpi=dpi,
+            n_model_points=n_model_points,
+            show=show,
+        )
+
+        center: float | None = None
+        positive_tail_weight: float | None = None
+        negative_tail_weight: float | None = None
+
+    else:
+        statistics = compare_symmetric_models(
+            pooled_values,
+            title=title,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            bins=bins,
+            plot_percentile=plot_percentile,
+            x_limits=x_limits,
+            save_path=save_path,
+            dpi=dpi,
+            n_model_points=n_model_points,
+            show=show,
+        )
+
+        center = float(
+            statistics["center"]
+        )
+        positive_tail_weight = float(
+            statistics["positive_tail_weight"]
+        )
+        negative_tail_weight = float(
+            statistics["negative_tail_weight"]
+        )
+
+    figure = statistics[
+        "figure"
+    ]
+    axes = statistics[
+        "axes"
+    ]
+
+    if not isinstance(
+        figure,
+        plt.Figure,
+    ):
+        raise TypeError(
+            "The plotting function returned an invalid figure."
+        )
 
     return ParameterCalibrationResult(
         maps=maps,
         subject_values=subject_values,
         pooled_values=pooled_values,
-        median=median,
-        iqr=iqr,
-        model_mean=model_mean,
-        model_std=model_std,
-        model_parameter_space=model_parameter_space,
+        distribution=distribution,
+        median=float(
+            statistics["median"]
+        ),
+        iqr=float(
+            statistics["iqr"]
+        ),
+        normal_mu=float(
+            statistics["normal_mu"]
+        ),
+        normal_sigma=float(
+            statistics["normal_sigma"]
+        ),
+        log_mu=float(
+            statistics["log_mu"]
+        ),
+        log_sigma=float(
+            statistics["log_sigma"]
+        ),
+        robust_log_sigma=float(
+            statistics["robust_log_sigma"]
+        ),
+        center=center,
+        normal_weight=float(
+            statistics["normal_weight"]
+        ),
+        lognormal_weight=float(
+            statistics["lognormal_weight"]
+        ),
+        positive_tail_weight=positive_tail_weight,
+        negative_tail_weight=negative_tail_weight,
+        plot_xmin=float(
+            statistics["plot_xmin"]
+        ),
+        plot_xmax=float(
+            statistics["plot_xmax"]
+        ),
         figure=figure,
         axes=axes,
     )

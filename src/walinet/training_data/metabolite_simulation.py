@@ -1,4 +1,5 @@
 # src/walinet/training_data/metabolite_simulation.py
+# Distribution refactor: mixture_v2
 
 from __future__ import annotations
 
@@ -13,6 +14,12 @@ import yaml
 from walinet.config.schema_simulation import (
     SimulationConfig,
 )
+from walinet.training_data.distributions import (
+    sample_distribution,
+    sample_positive_mixture_parameters,
+    sample_uniform,
+    validate_generator_device,
+)
 from walinet.training_data.lcmodel_basis.acquisition import (
     PreparedBasis,
 )
@@ -25,18 +32,11 @@ VOIGT_LORENTZ_SQUARED_COEFFICIENT = 0.2166
 @dataclass(frozen=True)
 class MetaboliteSamplingTable:
     """
-    One metabolite concentration profile aligned with
-    PreparedBasis.names.
+    One positive-mixture metabolite profile aligned with PreparedBasis.names.
 
-    Shapes:
-        means:
-            (n_basis_components,)
-
-        stds:
-            (n_basis_components,)
-
-        enabled_mask:
-            (n_basis_components,)
+    All parameter tensors have shape ``(n_basis_components,)``. Disabled
+    basis components contain safe placeholder parameters and are tracked by
+    ``enabled_mask``; their sampled concentrations are set to exactly zero.
     """
 
     config_path: str
@@ -48,19 +48,20 @@ class MetaboliteSamplingTable:
 
     means: torch.Tensor
     stds: torch.Tensor
+
+    log_mus: torch.Tensor
+    log_sigmas: torch.Tensor
+
+    minimums: torch.Tensor
     enabled_mask: torch.Tensor
 
     @property
     def n_basis_components(self) -> int:
-        return len(
-            self.basis_names
-        )
+        return len(self.basis_names)
 
     @property
     def n_active_components(self) -> int:
-        return len(
-            self.active_basis_names
-        )
+        return len(self.active_basis_names)
 
     @property
     def device(self) -> torch.device:
@@ -69,25 +70,7 @@ class MetaboliteSamplingTable:
 
 @dataclass(frozen=True)
 class SimulatedMetabolites:
-    """
-    One batch of noise-free simulated metabolites.
-
-    Shapes:
-        clean_fids:
-            (batch_size, n_timepoints)
-
-        clean_spectra:
-            (batch_size, n_timepoints)
-
-        concentrations:
-            (batch_size, n_basis_components)
-
-        profile_indices:
-            (batch_size,)
-
-        remaining parameter tensors:
-            (batch_size,)
-    """
+    """One batch of noise-free simulated metabolites."""
 
     clean_fids: torch.Tensor
     clean_spectra: torch.Tensor
@@ -106,15 +89,11 @@ class SimulatedMetabolites:
 
     @property
     def batch_size(self) -> int:
-        return int(
-            self.clean_fids.shape[0]
-        )
+        return int(self.clean_fids.shape[0])
 
     @property
     def n_timepoints(self) -> int:
-        return int(
-            self.clean_fids.shape[-1]
-        )
+        return int(self.clean_fids.shape[-1])
 
     @property
     def device(self) -> torch.device:
@@ -134,20 +113,54 @@ def _load_yaml_mapping(
         "r",
         encoding="utf-8",
     ) as file:
-        raw = yaml.safe_load(
-            file
-        )
+        raw = yaml.safe_load(file)
 
-    if not isinstance(
-        raw,
-        dict,
-    ):
+    if not isinstance(raw, dict):
         raise TypeError(
             "Metabolite profile configuration must contain "
             "a YAML mapping."
         )
 
     return raw
+
+
+def _require_profile_float(
+    mapping: dict,
+    key: str,
+    *,
+    parameter_path: str,
+    profile_path: Path,
+) -> float:
+    if key not in mapping:
+        raise KeyError(
+            f"Missing required value {parameter_path}.{key}.\n"
+            f"Profile: {profile_path}"
+        )
+
+    value = mapping[key]
+
+    if value is None:
+        raise ValueError(
+            f"{parameter_path}.{key} must not be null.\n"
+            f"Profile: {profile_path}"
+        )
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(
+            f"{parameter_path}.{key} must be numeric, "
+            f"but found {value!r}.\n"
+            f"Profile: {profile_path}"
+        ) from error
+
+    if not np.isfinite(result):
+        raise ValueError(
+            f"{parameter_path}.{key} must be finite.\n"
+            f"Profile: {profile_path}"
+        )
+
+    return result
 
 
 def load_metabolite_sampling_table(
@@ -157,251 +170,249 @@ def load_metabolite_sampling_table(
     device: torch.device | str,
 ) -> MetaboliteSamplingTable:
     """
-    Load one metabolite profile and align its concentration
-    distributions with PreparedBasis.names.
+    Load one positive-mixture metabolite profile and align it with the basis.
 
-    Every enabled metabolite uses a normal distribution. Negative
-    concentration draws are rejected and sampled again later by
-    MetaboliteSimulator.
+    Required distribution layout for every enabled metabolite::
 
-    Disabled or unspecified basis components receive mean=0,
-    std=0, and enabled=False.
+        distribution:
+          type: positive_mixture
+          normal:
+            mean: ...
+            std: ...
+          lognormal:
+            log_mu: ...
+            log_sigma: ...
+          minimum: 0.0
     """
-    path = Path(
-        path
-    ).resolve()
+    path = Path(path).resolve()
+    device = torch.device(device)
 
-    device = torch.device(
-        device
-    )
+    raw = _load_yaml_mapping(path)
 
-    raw = _load_yaml_mapping(
-        path
-    )
+    sampling_raw = raw.get("sampling", {})
 
-    sampling_raw = raw.get(
-        "sampling",
-        {},
-    )
+    if not isinstance(sampling_raw, dict):
+        raise TypeError(
+            "sampling must be a mapping.\n"
+            f"Profile: {path}"
+        )
 
     independent = bool(
-        sampling_raw.get(
-            "independent",
-            True,
-        )
+        sampling_raw.get("independent", True)
     )
 
     if not independent:
         raise ValueError(
-            "Only independent metabolite concentration "
-            "sampling is currently supported.\n"
+            "Only independent metabolite concentration sampling is "
+            "currently supported.\n"
             f"Profile: {path}"
         )
 
     default_distribution = str(
         sampling_raw.get(
             "default_distribution",
-            "normal",
+            "positive_mixture",
         )
-    ).lower()
+    ).strip().lower()
 
-    if default_distribution != "normal":
+    if default_distribution != "positive_mixture":
         raise ValueError(
-            "Only normal concentration distributions "
-            "are supported.\n"
+            "sampling.default_distribution must be "
+            "'positive_mixture', but found "
+            f"{default_distribution!r}.\n"
             f"Profile: {path}"
         )
 
-    metabolites_raw = raw.get(
-        "metabolites"
-    )
+    metabolites_raw = raw.get("metabolites")
 
-    if not isinstance(
-        metabolites_raw,
-        dict,
-    ):
+    if not isinstance(metabolites_raw, dict):
         raise TypeError(
-            "Metabolite profile must contain a "
-            "'metabolites' mapping.\n"
+            "Metabolite profile must contain a 'metabolites' mapping.\n"
             f"Profile: {path}"
         )
 
-    n_basis_components = (
-        prepared_basis.n_metabolites
-    )
+    n_basis_components = prepared_basis.n_metabolites
 
-    means = np.zeros(
-        n_basis_components,
-        dtype=np.float32,
-    )
-
-    stds = np.zeros(
-        n_basis_components,
-        dtype=np.float32,
-    )
-
-    enabled_mask = np.zeros(
-        n_basis_components,
-        dtype=bool,
-    )
+    # Safe placeholders for disabled or unspecified basis components.
+    # They make vectorized full-table sampling valid before those entries are
+    # overwritten with exactly zero through enabled_mask.
+    means = np.ones(n_basis_components, dtype=np.float32)
+    stds = np.zeros(n_basis_components, dtype=np.float32)
+    log_mus = np.zeros(n_basis_components, dtype=np.float32)
+    log_sigmas = np.zeros(n_basis_components, dtype=np.float32)
+    minimums = np.zeros(n_basis_components, dtype=np.float32)
+    enabled_mask = np.zeros(n_basis_components, dtype=bool)
 
     active_config_names: list[str] = []
     active_basis_names: list[str] = []
-
     used_basis_components: set[str] = set()
 
-    for (
-        config_name,
-        metabolite_raw,
-    ) in metabolites_raw.items():
-        if not isinstance(
-            metabolite_raw,
-            dict,
-        ):
+    for config_name, metabolite_raw in metabolites_raw.items():
+        if not isinstance(metabolite_raw, dict):
             raise TypeError(
-                f"Metabolite entry {config_name!r} "
-                "must be a mapping.\n"
+                f"Metabolite entry {config_name!r} must be a mapping.\n"
                 f"Profile: {path}"
             )
 
-        enabled = bool(
-            metabolite_raw.get(
-                "enabled",
-                True,
-            )
-        )
+        enabled = bool(metabolite_raw.get("enabled", True))
 
         if not enabled:
             continue
 
-        basis_component_raw = (
-            metabolite_raw.get(
-                "basis_component"
-            )
-        )
+        basis_component_raw = metabolite_raw.get("basis_component")
 
         if (
             basis_component_raw is None
-            or not str(
-                basis_component_raw
-            ).strip()
+            or not str(basis_component_raw).strip()
         ):
             raise ValueError(
-                f"Enabled metabolite {config_name!r} "
-                "has no basis_component.\n"
+                f"Enabled metabolite {config_name!r} has no "
+                "basis_component.\n"
                 f"Profile: {path}"
             )
 
-        basis_component = str(
-            basis_component_raw
-        ).strip()
+        basis_component = str(basis_component_raw).strip()
 
-        if (
-            basis_component
-            in used_basis_components
-        ):
+        if basis_component in used_basis_components:
             raise ValueError(
-                "Multiple enabled metabolite entries map "
-                "to the same basis component:\n"
+                "Multiple enabled metabolite entries map to the same "
+                "basis component:\n"
                 f"  {basis_component}\n"
                 f"Profile: {path}"
             )
 
         try:
-            basis_index = (
-                prepared_basis.index(
-                    basis_component
-                )
-            )
-
+            basis_index = prepared_basis.index(basis_component)
         except KeyError as error:
             raise KeyError(
-                f"Metabolite {config_name!r} references "
-                "a missing basis component:\n"
+                f"Metabolite {config_name!r} references a missing "
+                "basis component:\n"
                 f"  {basis_component}\n"
                 f"Profile: {path}"
             ) from error
 
-        distribution_raw = (
-            metabolite_raw.get(
-                "distribution"
-            )
-        )
+        distribution_raw = metabolite_raw.get("distribution")
 
-        if not isinstance(
-            distribution_raw,
-            dict,
-        ):
+        if not isinstance(distribution_raw, dict):
             raise TypeError(
-                f"Metabolite {config_name!r} has no "
-                "valid distribution mapping.\n"
+                f"Metabolite {config_name!r} has no valid distribution "
+                "mapping.\n"
                 f"Profile: {path}"
             )
+
+        parameter_path = f"metabolites.{config_name}.distribution"
 
         distribution_type = str(
-            distribution_raw.get(
-                "type",
-                default_distribution,
-            )
-        ).lower()
+            distribution_raw.get("type", default_distribution)
+        ).strip().lower()
 
-        if distribution_type != "normal":
+        if distribution_type != "positive_mixture":
             raise ValueError(
-                f"Metabolite {config_name!r} uses "
-                f"unsupported distribution "
-                f"{distribution_type!r}.\n"
+                f"{parameter_path}.type must be 'positive_mixture', "
+                f"but found {distribution_type!r}.\n"
                 f"Profile: {path}"
             )
 
-        mean = float(
-            distribution_raw["mean"]
+        normal_raw = distribution_raw.get("normal")
+        lognormal_raw = distribution_raw.get("lognormal")
+
+        if not isinstance(normal_raw, dict):
+            raise TypeError(
+                f"{parameter_path}.normal must be a mapping.\n"
+                f"Profile: {path}"
+            )
+
+        if not isinstance(lognormal_raw, dict):
+            raise TypeError(
+                f"{parameter_path}.lognormal must be a mapping.\n"
+                f"Profile: {path}"
+            )
+
+        normal_mean = _require_profile_float(
+            normal_raw,
+            "mean",
+            parameter_path=f"{parameter_path}.normal",
+            profile_path=path,
+        )
+        normal_std = _require_profile_float(
+            normal_raw,
+            "std",
+            parameter_path=f"{parameter_path}.normal",
+            profile_path=path,
+        )
+        log_mu = _require_profile_float(
+            lognormal_raw,
+            "log_mu",
+            parameter_path=f"{parameter_path}.lognormal",
+            profile_path=path,
+        )
+        log_sigma = _require_profile_float(
+            lognormal_raw,
+            "log_sigma",
+            parameter_path=f"{parameter_path}.lognormal",
+            profile_path=path,
+        )
+        minimum = _require_profile_float(
+            distribution_raw,
+            "minimum",
+            parameter_path=parameter_path,
+            profile_path=path,
         )
 
-        std = float(
-            distribution_raw["std"]
-        )
-
-        if not np.isfinite(mean):
+        if normal_std < 0:
             raise ValueError(
-                f"Mean for metabolite {config_name!r} "
-                "must be finite.\n"
+                f"{parameter_path}.normal.std must be >= 0.\n"
                 f"Profile: {path}"
             )
 
-        if (
-            not np.isfinite(std)
-            or std < 0
-        ):
+        if minimum < 0:
             raise ValueError(
-                f"Standard deviation for metabolite "
-                f"{config_name!r} must be finite "
-                "and >= 0.\n"
+                f"{parameter_path}.minimum must be >= 0.\n"
                 f"Profile: {path}"
             )
 
-        if std == 0 and mean < 0:
+        if normal_std == 0 and normal_mean <= minimum:
             raise ValueError(
-                f"Metabolite {config_name!r} has mean < 0 "
-                "and std = 0, so a non-negative value can "
-                "never be sampled.\n"
+                f"{parameter_path}.normal cannot be sampled because "
+                "std == 0 and mean <= minimum.\n"
                 f"Profile: {path}"
             )
 
-        means[basis_index] = mean
-        stds[basis_index] = std
+        if log_sigma < 0:
+            raise ValueError(
+                f"{parameter_path}.lognormal.log_sigma must be >= 0.\n"
+                f"Profile: {path}"
+            )
+
+        if log_sigma == 0:
+            try:
+                constant_lognormal_value = math.exp(log_mu)
+            except OverflowError as error:
+                raise ValueError(
+                    f"{parameter_path}.lognormal.log_mu overflows.\n"
+                    f"Profile: {path}"
+                ) from error
+
+            if (
+                not math.isfinite(constant_lognormal_value)
+                or constant_lognormal_value <= minimum
+            ):
+                raise ValueError(
+                    f"{parameter_path}.lognormal cannot be sampled because "
+                    "log_sigma == 0 and exp(log_mu) is not above minimum.\n"
+                    f"Profile: {path}"
+                )
+
+        means[basis_index] = normal_mean
+        stds[basis_index] = normal_std
+        log_mus[basis_index] = log_mu
+        log_sigmas[basis_index] = log_sigma
+        minimums[basis_index] = minimum
         enabled_mask[basis_index] = True
 
-        active_config_names.append(
-            str(config_name)
-        )
-
-        active_basis_names.append(
-            basis_component
-        )
-
-        used_basis_components.add(
-            basis_component
-        )
+        active_config_names.append(str(config_name))
+        active_basis_names.append(basis_component)
+        used_basis_components.add(basis_component)
 
     if not active_basis_names:
         raise ValueError(
@@ -411,30 +422,15 @@ def load_metabolite_sampling_table(
 
     return MetaboliteSamplingTable(
         config_path=str(path),
-        basis_names=tuple(
-            prepared_basis.names
-        ),
-        active_config_names=tuple(
-            active_config_names
-        ),
-        active_basis_names=tuple(
-            active_basis_names
-        ),
-        means=torch.from_numpy(
-            means
-        ).to(
-            device=device
-        ),
-        stds=torch.from_numpy(
-            stds
-        ).to(
-            device=device
-        ),
-        enabled_mask=torch.from_numpy(
-            enabled_mask
-        ).to(
-            device=device
-        ),
+        basis_names=tuple(prepared_basis.names),
+        active_config_names=tuple(active_config_names),
+        active_basis_names=tuple(active_basis_names),
+        means=torch.from_numpy(means).to(device=device),
+        stds=torch.from_numpy(stds).to(device=device),
+        log_mus=torch.from_numpy(log_mus).to(device=device),
+        log_sigmas=torch.from_numpy(log_sigmas).to(device=device),
+        minimums=torch.from_numpy(minimums).to(device=device),
+        enabled_mask=torch.from_numpy(enabled_mask).to(device=device),
     )
 
 
@@ -545,6 +541,30 @@ class MetaboliteSimulator:
             dim=0,
         ).contiguous()
 
+        self.profile_log_mus = torch.stack(
+            [
+                table.log_mus
+                for table in self.sampling_tables
+            ],
+            dim=0,
+        ).contiguous()
+
+        self.profile_log_sigmas = torch.stack(
+            [
+                table.log_sigmas
+                for table in self.sampling_tables
+            ],
+            dim=0,
+        ).contiguous()
+
+        self.profile_minimums = torch.stack(
+            [
+                table.minimums
+                for table in self.sampling_tables
+            ],
+            dim=0,
+        ).contiguous()
+
         self.profile_enabled_masks = torch.stack(
             [
                 table.enabled_mask
@@ -614,8 +634,9 @@ class MetaboliteSimulator:
                 "batch_size must be > 0."
             )
 
-        self._validate_generator_device(
-            generator
+        validate_generator_device(
+            generator=generator,
+            device=self.device,
         )
 
         profile_indices = (
@@ -647,10 +668,11 @@ class MetaboliteSimulator:
             .zero_order_phase
         )
 
-        zero_order_phases = self._sample_normal(
-            mean=zero_order_phase_cfg.mean_rad,
-            std=zero_order_phase_cfg.std_rad,
+        zero_order_phases = sample_distribution(
+            distribution=zero_order_phase_cfg.distribution,
             shape=(batch_size,),
+            device=self.device,
+            dtype=torch.float32,
             generator=generator,
         )
 
@@ -660,16 +682,11 @@ class MetaboliteSimulator:
             .first_order_phase
         )
 
-        first_order_phases = self._sample_normal(
-            mean=(
-                first_order_phase_cfg
-                .mean_rad_per_hz
-            ),
-            std=(
-                first_order_phase_cfg
-                .std_rad_per_hz
-            ),
+        first_order_phases = sample_distribution(
+            distribution=first_order_phase_cfg.distribution,
             shape=(batch_size,),
+            device=self.device,
+            dtype=torch.float32,
             generator=generator,
         )
 
@@ -679,10 +696,11 @@ class MetaboliteSimulator:
             .frequency_shift
         )
 
-        frequency_shifts = self._sample_normal(
-            mean=frequency_shift_cfg.mean_hz,
-            std=frequency_shift_cfg.std_hz,
+        frequency_shifts = sample_distribution(
+            distribution=frequency_shift_cfg.distribution,
             shape=(batch_size,),
+            device=self.device,
+            dtype=torch.float32,
             generator=generator,
         )
 
@@ -692,22 +710,21 @@ class MetaboliteSimulator:
             .fwhm
         )
 
-        voigt_fwhm_hz = (
-            self._sample_positive_normal(
-                mean=fwhm_cfg.mean_hz,
-                std=fwhm_cfg.std_hz,
-                batch_size=batch_size,
-                generator=generator,
-            )
+        voigt_fwhm_hz = sample_distribution(
+            distribution=fwhm_cfg.distribution,
+            shape=(batch_size,),
+            device=self.device,
+            dtype=torch.float32,
+            generator=generator,
         )
 
-        lorentzian_fractions = (
-            self._sample_uniform(
-                minimum=0.0,
-                maximum=1.0,
-                batch_size=batch_size,
-                generator=generator,
-            )
+        lorentzian_fractions = sample_uniform(
+            minimum=0.0,
+            maximum=1.0,
+            shape=(batch_size,),
+            device=self.device,
+            dtype=torch.float32,
+            generator=generator,
         )
 
         (
@@ -830,225 +847,78 @@ class MetaboliteSimulator:
         generator: torch.Generator,
     ) -> torch.Tensor:
         """
-        Sample independent non-negative metabolite concentrations
-        from the selected profile of each spectrum.
+        Sample independent metabolite concentrations from the shared
+        positive 50/50 mixture model.
 
-        Negative draws are rejected and sampled again. They are not
-        clipped to zero.
+        Every enabled metabolite uses
+
+            0.5 * TruncatedNormal(normal_mean, normal_std)
+            +
+            0.5 * LogNormal(log_mu, log_sigma).
+
+        The parameter tensors are selected from the sampled metabolite
+        profile and passed to the same centralized sampler used for FWHM,
+        SNR, water scaling, and lipid scaling. Disabled basis components are
+        set to exactly zero afterwards.
         """
         batch_size = int(
             profile_indices.shape[0]
         )
 
-        means = self.profile_means.index_select(
+        output_shape = (
+            batch_size,
+            self.n_basis_components,
+        )
+
+        normal_means = self.profile_means.index_select(
             0,
             profile_indices,
         )
 
-        stds = self.profile_stds.index_select(
+        normal_stds = self.profile_stds.index_select(
             0,
             profile_indices,
         )
 
-        enabled_mask = (
-            self.profile_enabled_masks
-            .index_select(
-                0,
-                profile_indices,
-            )
+        log_mus = self.profile_log_mus.index_select(
+            0,
+            profile_indices,
         )
 
-        concentrations = (
-            means
-            + stds
-            * torch.randn(
-                (
-                    batch_size,
-                    self.n_basis_components,
-                ),
-                generator=generator,
-                device=self.device,
-                dtype=torch.float32,
-            )
+        log_sigmas = self.profile_log_sigmas.index_select(
+            0,
+            profile_indices,
         )
 
-        invalid = (
-            enabled_mask
-            & (concentrations < 0)
+        minimums = self.profile_minimums.index_select(
+            0,
+            profile_indices,
         )
 
-        while torch.any(invalid):
-            invalid_indices = torch.nonzero(
-                invalid,
-                as_tuple=False,
-            )
+        enabled_mask = self.profile_enabled_masks.index_select(
+            0,
+            profile_indices,
+        )
 
-            batch_indices = (
-                invalid_indices[:, 0]
-            )
-
-            component_indices = (
-                invalid_indices[:, 1]
-            )
-
-            redrawn_values = (
-                means[
-                    batch_indices,
-                    component_indices,
-                ]
-                + stds[
-                    batch_indices,
-                    component_indices,
-                ]
-                * torch.randn(
-                    (invalid_indices.shape[0],),
-                    generator=generator,
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-            )
-
-            concentrations[
-                batch_indices,
-                component_indices,
-            ] = redrawn_values
-
-            invalid = (
-                enabled_mask
-                & (concentrations < 0)
-            )
+        concentrations = sample_positive_mixture_parameters(
+            normal_mean=normal_means,
+            normal_std=normal_stds,
+            log_mu=log_mus,
+            log_sigma=log_sigmas,
+            minimum=minimums,
+            shape=output_shape,
+            device=self.device,
+            dtype=torch.float32,
+            generator=generator,
+        )
 
         concentrations = torch.where(
             enabled_mask,
             concentrations,
-            torch.zeros_like(
-                concentrations
-            ),
+            torch.zeros_like(concentrations),
         )
 
         return concentrations.contiguous()
-
-    def _sample_normal(
-        self,
-        *,
-        mean: float,
-        std: float,
-        shape: tuple[int, ...],
-        generator: torch.Generator,
-    ) -> torch.Tensor:
-        if not math.isfinite(mean):
-            raise ValueError(
-                "Normal mean must be finite."
-            )
-
-        if (
-            not math.isfinite(std)
-            or std < 0
-        ):
-            raise ValueError(
-                "Normal std must be finite and >= 0."
-            )
-
-        if std == 0:
-            return torch.full(
-                shape,
-                fill_value=float(mean),
-                device=self.device,
-                dtype=torch.float32,
-            )
-
-        return (
-            float(mean)
-            + float(std)
-            * torch.randn(
-                shape,
-                generator=generator,
-                device=self.device,
-                dtype=torch.float32,
-            )
-        ).contiguous()
-
-    def _sample_positive_normal(
-        self,
-        *,
-        mean: float,
-        std: float,
-        batch_size: int,
-        generator: torch.Generator,
-    ) -> torch.Tensor:
-        """
-        Sample from a normal distribution truncated to values > 0
-        using rejection sampling.
-        """
-        if std == 0 and mean <= 0:
-            raise ValueError(
-                "A positive normal sample is impossible when "
-                "std == 0 and mean <= 0."
-            )
-
-        values = self._sample_normal(
-            mean=mean,
-            std=std,
-            shape=(batch_size,),
-            generator=generator,
-        )
-
-        invalid = values <= 0
-
-        while torch.any(invalid):
-            n_invalid = int(
-                invalid.sum().item()
-            )
-
-            values[invalid] = self._sample_normal(
-                mean=mean,
-                std=std,
-                shape=(n_invalid,),
-                generator=generator,
-            )
-
-            invalid = values <= 0
-
-        return values.contiguous()
-
-    def _sample_uniform(
-        self,
-        *,
-        minimum: float,
-        maximum: float,
-        batch_size: int,
-        generator: torch.Generator,
-    ) -> torch.Tensor:
-        if maximum < minimum:
-            raise ValueError(
-                "maximum must be >= minimum."
-            )
-
-        if maximum == minimum:
-            return torch.full(
-                (batch_size,),
-                fill_value=float(
-                    minimum
-                ),
-                device=self.device,
-                dtype=torch.float32,
-            )
-
-        random_values = torch.rand(
-            (batch_size,),
-            generator=generator,
-            device=self.device,
-            dtype=torch.float32,
-        )
-
-        return (
-            minimum
-            + (
-                maximum
-                - minimum
-            )
-            * random_values
-        ).contiguous()
 
     def _split_voigt_fwhm(
         self,
@@ -1389,37 +1259,6 @@ class MetaboliteSimulator:
                 f"  relative error: {relative_error:.3e}\n"
                 f"  maximum:        "
                 f"{max_relative_bandwidth_error:.3e}"
-            )
-
-    def _validate_generator_device(
-        self,
-        generator: torch.Generator,
-    ) -> None:
-        generator_device = torch.device(
-            generator.device
-        )
-
-        if (
-            generator_device.type
-            != self.device.type
-        ):
-            raise ValueError(
-                "Generator and simulator must use "
-                "the same device type:\n"
-                f"  generator: {generator_device}\n"
-                f"  simulator: {self.device}"
-            )
-
-        if (
-            self.device.type == "cuda"
-            and generator_device.index is not None
-            and self.device.index is not None
-            and generator_device.index
-            != self.device.index
-        ):
-            raise ValueError(
-                "Generator and simulator must use "
-                "the same CUDA device."
             )
 
     def _validate_result(

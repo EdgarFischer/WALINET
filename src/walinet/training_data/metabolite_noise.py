@@ -1,4 +1,5 @@
 # src/walinet/training_data/metabolite_noise.py
+# Distribution refactor: mixture_v2
 
 from __future__ import annotations
 
@@ -8,6 +9,10 @@ import torch
 
 from walinet.config.schema_simulation import (
     SimulationConfig,
+)
+from walinet.training_data.distributions import (
+    sample_distribution,
+    validate_generator_device,
 )
 from walinet.training_data.metabolite_simulation import (
     SimulatedMetabolites,
@@ -52,119 +57,6 @@ class SimulatedNoise:
     @property
     def device(self) -> torch.device:
         return self.noise_spectra.device
-
-
-def _validate_generator_device(
-    *,
-    generator: torch.Generator,
-    device: torch.device,
-) -> None:
-    """
-    Ensure that the random generator and output tensors use
-    the same device.
-    """
-    generator_device = torch.device(
-        generator.device
-    )
-
-    if generator_device.type != device.type:
-        raise ValueError(
-            "Generator and signals must use the same "
-            "device type:\n"
-            f"  generator: {generator_device}\n"
-            f"  signals:   {device}"
-        )
-
-    if (
-        device.type == "cuda"
-        and generator_device.index is not None
-        and device.index is not None
-        and generator_device.index != device.index
-    ):
-        raise ValueError(
-            "Generator and signals must use the same "
-            "CUDA device:\n"
-            f"  generator: {generator_device}\n"
-            f"  signals:   {device}"
-        )
-
-
-def _sample_snr(
-    *,
-    batch_size: int,
-    config: SimulationConfig,
-    device: torch.device,
-    dtype: torch.dtype,
-    generator: torch.Generator,
-) -> torch.Tensor:
-    """
-    Sample target LCModel-compatible SNR from a normal
-    distribution truncated at the configured lower bound.
-
-    Values below noise.snr.min are rejected and sampled again.
-    They are not clipped, avoiding an artificial accumulation
-    exactly at the lower bound.
-    """
-    mean = float(
-        config.noise.snr.mean
-    )
-
-    std = float(
-        config.noise.snr.std
-    )
-
-    minimum = float(
-        config.noise.snr.min
-    )
-
-    if std == 0:
-        if mean < minimum:
-            raise ValueError(
-                "Cannot sample SNR when noise.snr.std == 0 "
-                "and noise.snr.mean < noise.snr.min."
-            )
-
-        return torch.full(
-            (batch_size,),
-            fill_value=mean,
-            dtype=dtype,
-            device=device,
-        )
-
-    snr = (
-        mean
-        + std
-        * torch.randn(
-            (batch_size,),
-            generator=generator,
-            device=device,
-            dtype=dtype,
-        )
-    )
-
-    invalid = snr < minimum
-
-    while torch.any(
-        invalid
-    ):
-        n_invalid = int(
-            invalid.sum().item()
-        )
-
-        snr[invalid] = (
-            mean
-            + std
-            * torch.randn(
-                (n_invalid,),
-                generator=generator,
-                device=device,
-                dtype=dtype,
-            )
-        )
-
-        invalid = snr < minimum
-
-    return snr.contiguous()
 
 
 def simulate_receiver_noise(
@@ -227,7 +119,7 @@ def simulate_receiver_noise(
     device = clean_spectra.device
     real_dtype = clean_spectra.real.dtype
 
-    _validate_generator_device(
+    validate_generator_device(
         generator=generator,
         device=device,
     )
@@ -240,9 +132,9 @@ def simulate_receiver_noise(
         clean_spectra.shape[-1]
     )
 
-    snr = _sample_snr(
-        batch_size=batch_size,
-        config=config,
+    snr = sample_distribution(
+        distribution=config.noise.snr.distribution,
+        shape=(batch_size,),
         device=device,
         dtype=real_dtype,
         generator=generator,
@@ -287,6 +179,23 @@ def simulate_receiver_noise(
         raise RuntimeError(
             "Generated noise spectra contain non-finite "
             "imaginary values."
+        )
+
+    if not torch.isfinite(
+        snr
+    ).all():
+        raise RuntimeError(
+            "Sampled SNR contains non-finite values."
+        )
+
+    if torch.any(
+        snr
+        < float(
+            config.noise.snr.minimum
+        )
+    ):
+        raise RuntimeError(
+            "Sampled SNR contains values below noise.snr.minimum."
         )
 
     return SimulatedNoise(

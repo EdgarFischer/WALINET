@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 import numpy as np
 
 from walinet.parameter_calibration.load_data import (
@@ -27,15 +29,31 @@ class MetaboliteReferenceData:
 @dataclass(frozen=True)
 class MetaboliteRatioCalibrationResult:
     """
-    Result of the metabolite-ratio calibration.
+    Complete calibration result for the positive 50/50 mixture model.
 
-    ``robust_log_sigma`` is the unscaled robust estimate:
+    The zero-truncated normal component is calibrated as:
 
-        IQR(log(values)) / 1.349
+        normal_mu = median(values)
+        robust_normal_sigma = IQR(values) / 1.349
+        normal_sigma = (
+            truncated_normal_sigma_factor
+            * robust_normal_sigma
+        )
 
-    ``log_sigma`` is the final simulation parameter:
+    The lognormal component is calibrated as:
 
-        lognormal_sigma_factor * robust_log_sigma
+        log_mu = median(log(values))
+        robust_log_sigma = IQR(log(values)) / 1.349
+        log_sigma = (
+            lognormal_sigma_factor
+            * robust_log_sigma
+        )
+
+    The final sampling model uses fixed global weights:
+
+        0.5 * ZeroTruncatedNormal
+        +
+        0.5 * LogNormal
     """
 
     coefficient_maps: np.ndarray
@@ -45,13 +63,25 @@ class MetaboliteRatioCalibrationResult:
     median: float
     iqr: float
 
+    normal_mu: float
+    robust_normal_sigma: float
+    truncated_normal_sigma_factor: float
+    normal_sigma: float
+
     log_mu: float
     robust_log_sigma: float
     lognormal_sigma_factor: float
     log_sigma: float
     lognormal_median: float
 
+    normal_weight: float
+    lognormal_weight: float
+
+    plot_xmin: float
     plot_xmax: float
+
+    figure: Figure
+    axes: Axes
 
 
 def load_metabolite_reference_data(
@@ -211,10 +241,13 @@ def calibrate_metabolite_ratio_from_map(
     spectral_axis: int = -2,
     bins: int | str = 50,
     plot_percentile: float = 99.5,
-    truncated_normal_sigma_factor: float = 2.0,
+    truncated_normal_sigma_factor: float = 1.0,
     lognormal_sigma_factor: float = 1.0,
     title: str | None = None,
     xlabel: str | None = None,
+    save_path: str | Path | None = None,
+    dpi: int = 300,
+    show: bool = True,
 ) -> MetaboliteRatioCalibrationResult:
     """
     Load one metabolite amplitude map and run the complete
@@ -233,23 +266,51 @@ def calibrate_metabolite_ratio_from_map(
 
     are used, in addition to the brain mask.
 
-    The robust lognormal parameters are calculated as:
+    The positive ratio distribution is represented by the common
+    fixed-weight mixture model:
+
+        0.5 * ZeroTruncatedNormal
+        +
+        0.5 * LogNormal
+
+    Both components are calibrated robustly from the same in-vivo
+    values. For the zero-truncated normal component:
+
+        normal_mu = median(ratio)
+        robust_normal_sigma = IQR(ratio) / 1.349
+        normal_sigma = (
+            truncated_normal_sigma_factor
+            * robust_normal_sigma
+        )
+
+    For the lognormal component:
 
         log_mu = median(log(ratio))
-
         robust_log_sigma = IQR(log(ratio)) / 1.349
-
         log_sigma = (
             lognormal_sigma_factor
             * robust_log_sigma
         )
 
-    ``lognormal_sigma_factor`` can therefore be used to deliberately
-    broaden the simulated distribution without changing its median.
+    Set both sigma factors to 1.0 for the final directly calibrated
+    model without deliberate broadening.
     """
     if not metabolite_name.strip():
         raise ValueError(
             "metabolite_name must not be empty."
+        )
+
+    truncated_normal_sigma_factor = float(
+        truncated_normal_sigma_factor
+    )
+
+    if (
+        not np.isfinite(truncated_normal_sigma_factor)
+        or truncated_normal_sigma_factor <= 0
+    ):
+        raise ValueError(
+            "truncated_normal_sigma_factor must be finite and "
+            "greater than zero."
         )
 
     lognormal_sigma_factor = float(
@@ -440,6 +501,22 @@ def calibrate_metabolite_ratio_from_map(
         lognormal_sigma_factor=(
             lognormal_sigma_factor
         ),
+        save_path=save_path,
+        dpi=dpi,
+        show=show,
+    )
+
+    normal_sigma_factor = float(
+        statistics["normal_sigma_factor"]
+    )
+
+    normal_sigma = float(
+        statistics["normal_sigma"]
+    )
+
+    robust_normal_sigma = (
+        normal_sigma
+        / normal_sigma_factor
     )
 
     result = MetaboliteRatioCalibrationResult(
@@ -452,6 +529,16 @@ def calibrate_metabolite_ratio_from_map(
         iqr=float(
             statistics["iqr"]
         ),
+        normal_mu=float(
+            statistics["normal_mu"]
+        ),
+        robust_normal_sigma=float(
+            robust_normal_sigma
+        ),
+        truncated_normal_sigma_factor=(
+            normal_sigma_factor
+        ),
+        normal_sigma=normal_sigma,
         log_mu=float(
             statistics["log_mu"]
         ),
@@ -469,35 +556,77 @@ def calibrate_metabolite_ratio_from_map(
                 statistics["log_mu"]
             )
         ),
+        normal_weight=float(
+            statistics["normal_weight"]
+        ),
+        lognormal_weight=float(
+            statistics["lognormal_weight"]
+        ),
+        plot_xmin=float(
+            statistics["plot_xmin"]
+        ),
         plot_xmax=float(
             statistics["plot_xmax"]
         ),
+        figure=statistics["figure"],
+        axes=statistics["axes"],
     )
 
     print(
-        f"\nFinal {metabolite_name} lognormal parameters:"
+        f"\nFinal {metabolite_name} positive-mixture parameters:"
+    )
+
+    print(
+        "  Zero-truncated normal component:"
     )
     print(
-        f"  log_mu               = {result.log_mu:.6f}"
+        f"    mu                    = {result.normal_mu:.6f}"
     )
     print(
-        f"  robust_log_sigma     = "
+        f"    robust_sigma          = "
+        f"{result.robust_normal_sigma:.6f}"
+    )
+    print(
+        f"    sigma_factor          = "
+        f"{result.truncated_normal_sigma_factor:.6f}"
+    )
+    print(
+        f"    final_sigma           = {result.normal_sigma:.6f}"
+    )
+
+    print(
+        "  Lognormal component:"
+    )
+    print(
+        f"    log_mu                = {result.log_mu:.6f}"
+    )
+    print(
+        f"    robust_log_sigma      = "
         f"{result.robust_log_sigma:.6f}"
     )
     print(
-        f"  lognormal_sigma_factor = "
+        f"    sigma_factor          = "
         f"{result.lognormal_sigma_factor:.6f}"
     )
     print(
-        f"  final_log_sigma      = {result.log_sigma:.6f}"
+        f"    final_log_sigma       = {result.log_sigma:.6f}"
     )
     print(
-        f"  median               = "
+        f"    median                = "
         f"{result.lognormal_median:.6f}"
     )
+
     print(
-        f"  voxels               = "
-        f"{result.pooled_values.size}"
+        "  Mixture:"
+    )
+    print(
+        f"    normal_weight         = {result.normal_weight:.6f}"
+    )
+    print(
+        f"    lognormal_weight      = {result.lognormal_weight:.6f}"
+    )
+    print(
+        f"    voxels                = {result.pooled_values.size}"
     )
 
     return result

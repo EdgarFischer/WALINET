@@ -4,6 +4,180 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from typing import Literal, TypeAlias
+
+
+PositiveDistributionType = Literal[
+    "positive_mixture",
+]
+
+SignedDistributionType = Literal[
+    "symmetric_mixture",
+]
+
+
+# -----------------------------------------------------------------------------
+# Generic distribution configuration
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NormalComponentCfg:
+    """
+    One normal-distribution component in the simulator's internal unit.
+
+    ``mean`` and ``std`` may therefore represent Hz, radians, rad/Hz, or a
+    dimensionless scaling factor, depending on the parameter using the
+    component.
+    """
+
+    mean: float
+    std: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.mean):
+            raise ValueError(
+                "NormalComponentCfg.mean must be finite."
+            )
+
+        if (
+            not math.isfinite(self.std)
+            or self.std < 0
+        ):
+            raise ValueError(
+                "NormalComponentCfg.std must be finite and >= 0."
+            )
+
+
+@dataclass(frozen=True)
+class LogNormalComponentCfg:
+    """
+    One lognormal-distribution component.
+
+    Sampling is defined by
+
+        exp(N(log_mu, log_sigma**2)).
+
+    ``log_mu`` refers to the logarithm of numerical values expressed in the
+    simulator's internal unit. ``log_sigma`` is dimensionless.
+    """
+
+    log_mu: float
+    log_sigma: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.log_mu):
+            raise ValueError(
+                "LogNormalComponentCfg.log_mu must be finite."
+            )
+
+        if (
+            not math.isfinite(self.log_sigma)
+            or self.log_sigma < 0
+        ):
+            raise ValueError(
+                "LogNormalComponentCfg.log_sigma must be "
+                "finite and >= 0."
+            )
+
+
+@dataclass(frozen=True)
+class PositiveMixtureDistributionCfg:
+    """
+    Positive 50/50 mixture distribution.
+
+    Model
+    -----
+
+        0.5 * truncated Normal
+        +
+        0.5 * LogNormal
+
+    Both components use the same lower bound. Draws less than or equal to
+    ``minimum`` are rejected and resampled. The fixed mixture weights are
+    defined centrally by the sampling implementation and are deliberately not
+    configurable per parameter.
+    """
+
+    normal: NormalComponentCfg
+    lognormal: LogNormalComponentCfg
+    minimum: float
+    type: PositiveDistributionType = "positive_mixture"
+
+    def __post_init__(self) -> None:
+        if self.type != "positive_mixture":
+            raise ValueError(
+                "PositiveMixtureDistributionCfg.type must be "
+                "'positive_mixture'."
+            )
+
+        if not math.isfinite(self.minimum):
+            raise ValueError(
+                "PositiveMixtureDistributionCfg.minimum must be finite."
+            )
+
+        if self.minimum < 0:
+            raise ValueError(
+                "PositiveMixtureDistributionCfg.minimum must be >= 0."
+            )
+
+        if (
+            self.normal.std == 0
+            and self.normal.mean <= self.minimum
+        ):
+            raise ValueError(
+                "The truncated-normal component cannot be sampled because "
+                "std == 0 and mean <= minimum."
+            )
+
+
+@dataclass(frozen=True)
+class SymmetricMixtureDistributionCfg:
+    """
+    Signed mixture with a normal core and symmetric lognormal tails.
+
+    Model
+    -----
+
+        0.50 * Normal(center, normal_std)
+        +
+        0.25 * (center + LogNormal(tail_log_mu, tail_log_sigma))
+        +
+        0.25 * (center - LogNormal(tail_log_mu, tail_log_sigma))
+
+    The center is stored as ``normal.mean`` so the normal component can be
+    handled by the same generic normal-component type used elsewhere. The
+    fixed mixture weights are defined centrally by the sampling
+    implementation.
+    """
+
+    normal: NormalComponentCfg
+    lognormal_tail: LogNormalComponentCfg
+    type: SignedDistributionType = "symmetric_mixture"
+
+    def __post_init__(self) -> None:
+        if self.type != "symmetric_mixture":
+            raise ValueError(
+                "SymmetricMixtureDistributionCfg.type must be "
+                "'symmetric_mixture'."
+            )
+
+    @property
+    def center(self) -> float:
+        return self.normal.mean
+
+    @property
+    def normal_std(self) -> float:
+        return self.normal.std
+
+
+PositiveDistributionCfg: TypeAlias = PositiveMixtureDistributionCfg
+SignedDistributionCfg: TypeAlias = SymmetricMixtureDistributionCfg
+
+
+# -----------------------------------------------------------------------------
+# Acquisition and resource configuration
+# -----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -11,25 +185,10 @@ class AcquisitionCfg:
     """
     Acquisition parameters of the simulated spectra.
 
-    n_timepoints:
-        Fixed internal FID length and final spectral length.
-
-    min_acquired_n_timepoints:
-        Minimum number of actually acquired FID samples.
-
-    max_acquired_n_timepoints:
-        Maximum number of actually acquired FID samples.
-
-    Samples after the selected acquisition length are set to zero
-    before the final FFT.
-
-    nmr_frequency_hz:
-        Larmor frequency of the acquisition.
-
-        This value is not used during simulation. It is stored for
-        documentation purposes and to enable Hz-to-ppm and ppm-to-Hz
-        conversions during visualization, post-processing, and
-        interfacing with LCModel.
+    ``n_timepoints`` is the fixed internal FID length and final spectral
+    length. The actually acquired FID length is sampled inclusively between
+    ``min_acquired_n_timepoints`` and ``max_acquired_n_timepoints``; later FID
+    samples are zero-filled before the final FFT.
     """
 
     bandwidth_hz: float
@@ -46,8 +205,7 @@ class AcquisitionCfg:
             or self.bandwidth_hz <= 0
         ):
             raise ValueError(
-                "acquisition.bandwidth_hz must be "
-                "finite and > 0."
+                "acquisition.bandwidth_hz must be finite and > 0."
             )
 
         if self.n_timepoints <= 0:
@@ -57,8 +215,7 @@ class AcquisitionCfg:
 
         if self.min_acquired_n_timepoints <= 0:
             raise ValueError(
-                "acquisition.min_acquired_n_timepoints "
-                "must be > 0."
+                "acquisition.min_acquired_n_timepoints must be > 0."
             )
 
         if (
@@ -66,18 +223,14 @@ class AcquisitionCfg:
             < self.min_acquired_n_timepoints
         ):
             raise ValueError(
-                "acquisition.max_acquired_n_timepoints "
-                "must be >= "
+                "acquisition.max_acquired_n_timepoints must be >= "
                 "acquisition.min_acquired_n_timepoints."
             )
 
-        if (
-            self.max_acquired_n_timepoints
-            > self.n_timepoints
-        ):
+        if self.max_acquired_n_timepoints > self.n_timepoints:
             raise ValueError(
-                "acquisition.max_acquired_n_timepoints "
-                "must be <= acquisition.n_timepoints."
+                "acquisition.max_acquired_n_timepoints must be <= "
+                "acquisition.n_timepoints."
             )
 
         if (
@@ -85,23 +238,21 @@ class AcquisitionCfg:
             or self.nmr_frequency_hz <= 0
         ):
             raise ValueError(
-                "acquisition.nmr_frequency_hz must be "
-                "finite and > 0."
+                "acquisition.nmr_frequency_hz must be finite and > 0."
             )
 
     @property
     def dwell_time_seconds(self) -> float:
-        """
-        Time between consecutive FID samples.
-        """
         return 1.0 / self.bandwidth_hz
+
+    @property
+    def hz_per_ppm(self) -> float:
+        return self.nmr_frequency_hz / 1e6
 
 
 @dataclass(frozen=True)
 class BasisCfg:
-    """
-    Path to the prepared LCModel basis library.
-    """
+    """Path to the prepared LCModel basis library."""
 
     library: str
 
@@ -114,16 +265,7 @@ class BasisCfg:
 
 @dataclass(frozen=True)
 class MetaboliteProfileCfg:
-    """
-    One metabolite concentration profile.
-
-    config:
-        Path to the profile-specific Metabos YAML.
-
-    probability:
-        Probability of selecting this profile for one complete
-        simulated spectrum.
-    """
+    """One metabolite concentration profile and its selection probability."""
 
     config: str
     probability: float
@@ -144,151 +286,118 @@ class MetaboliteProfileCfg:
             )
 
 
+# -----------------------------------------------------------------------------
+# Parameter-specific wrappers around generic distributions
+# -----------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class FrequencyShiftCfg:
     """
-    Normal distribution of the global frequency shift in Hz.
-
-    Negative and positive values are allowed.
+    Global frequency-shift distribution in the internal unit Hz.
     """
 
-    mean_hz: float
-    std_hz: float
+    distribution: SymmetricMixtureDistributionCfg
 
-    def __post_init__(self) -> None:
-        if not math.isfinite(self.mean_hz):
-            raise ValueError(
-                "metabolites.frequency_shift.mean_hz "
-                "must be finite."
-            )
+    @property
+    def center_hz(self) -> float:
+        return self.distribution.center
 
-        if (
-            not math.isfinite(self.std_hz)
-            or self.std_hz < 0
-        ):
-            raise ValueError(
-                "metabolites.frequency_shift.std_hz "
-                "must be finite and >= 0."
-            )
+    @property
+    def normal_std_hz(self) -> float:
+        return self.distribution.normal_std
+
+    @property
+    def tail_log_mu_hz(self) -> float:
+        return self.distribution.lognormal_tail.log_mu
+
+    @property
+    def tail_log_sigma(self) -> float:
+        return self.distribution.lognormal_tail.log_sigma
 
 
 @dataclass(frozen=True)
 class FWHMCfg:
     """
-    Normal distribution of the total Voigt FWHM in Hz.
-
-    Non-positive draws are rejected and sampled again.
+    Positive mixture distribution of the total Voigt FWHM in Hz.
     """
 
-    mean_hz: float
-    std_hz: float
+    distribution: PositiveMixtureDistributionCfg
 
-    def __post_init__(self) -> None:
-        if (
-            not math.isfinite(self.mean_hz)
-            or self.mean_hz <= 0
-        ):
-            raise ValueError(
-                "metabolites.fwhm.mean_hz "
-                "must be finite and > 0."
-            )
+    @property
+    def normal_mean_hz(self) -> float:
+        return self.distribution.normal.mean
 
-        if (
-            not math.isfinite(self.std_hz)
-            or self.std_hz < 0
-        ):
-            raise ValueError(
-                "metabolites.fwhm.std_hz "
-                "must be finite and >= 0."
-            )
+    @property
+    def normal_std_hz(self) -> float:
+        return self.distribution.normal.std
+
+    @property
+    def log_mu_hz(self) -> float:
+        return self.distribution.lognormal.log_mu
+
+    @property
+    def log_sigma(self) -> float:
+        return self.distribution.lognormal.log_sigma
+
+    @property
+    def minimum_hz(self) -> float:
+        return self.distribution.minimum
 
 
 @dataclass(frozen=True)
 class ZeroOrderPhaseCfg:
     """
-    Normal distribution of the frequency-independent phase rotation.
-
-    The phase is expressed in radians and is applied only to the
-    simulated metabolite signal.
-
-    Negative and positive values are allowed.
+    Frequency-independent phase distribution in radians.
     """
 
-    mean_rad: float
-    std_rad: float
+    distribution: SymmetricMixtureDistributionCfg
 
-    def __post_init__(self) -> None:
-        if not math.isfinite(self.mean_rad):
-            raise ValueError(
-                "metabolites.zero_order_phase.mean_rad "
-                "must be finite."
-            )
+    @property
+    def center_rad(self) -> float:
+        return self.distribution.center
 
-        if (
-            not math.isfinite(self.std_rad)
-            or self.std_rad < 0
-        ):
-            raise ValueError(
-                "metabolites.zero_order_phase.std_rad "
-                "must be finite and >= 0."
-            )
+    @property
+    def normal_std_rad(self) -> float:
+        return self.distribution.normal_std
+
+    @property
+    def tail_log_mu_rad(self) -> float:
+        return self.distribution.lognormal_tail.log_mu
+
+    @property
+    def tail_log_sigma(self) -> float:
+        return self.distribution.lognormal_tail.log_sigma
 
 
 @dataclass(frozen=True)
 class FirstOrderPhaseCfg:
     """
-    Normal distribution of the linear phase slope over frequency.
-
-    The slope is expressed in radians per Hz and is applied only
-    to the simulated metabolite spectrum.
-
-    For a frequency offset f in Hz, the corresponding phase is
-
-        phase(f) = first_order_phase * f.
-
-    Therefore,
-
-        rad/Hz * Hz = rad.
-
-    Negative and positive values are allowed.
+    Linear phase-slope distribution in radians per Hz.
     """
 
-    mean_rad_per_hz: float
-    std_rad_per_hz: float
+    distribution: SymmetricMixtureDistributionCfg
 
-    def __post_init__(self) -> None:
-        if not math.isfinite(self.mean_rad_per_hz):
-            raise ValueError(
-                "metabolites.first_order_phase."
-                "mean_rad_per_hz must be finite."
-            )
+    @property
+    def center_rad_per_hz(self) -> float:
+        return self.distribution.center
 
-        if (
-            not math.isfinite(self.std_rad_per_hz)
-            or self.std_rad_per_hz < 0
-        ):
-            raise ValueError(
-                "metabolites.first_order_phase."
-                "std_rad_per_hz must be finite and >= 0."
-            )
+    @property
+    def normal_std_rad_per_hz(self) -> float:
+        return self.distribution.normal_std
+
+    @property
+    def tail_log_mu_rad_per_hz(self) -> float:
+        return self.distribution.lognormal_tail.log_mu
+
+    @property
+    def tail_log_sigma(self) -> float:
+        return self.distribution.lognormal_tail.log_sigma
 
 
 @dataclass(frozen=True)
 class MetaboliteCfg:
-    """
-    Metabolite simulation parameters.
-
-    One profile is sampled for each complete simulated spectrum.
-    All metabolite concentrations of that spectrum are then drawn
-    from the selected profile.
-
-    Frequency shift, FWHM, zero-order phase, and first-order phase
-    are sampled independently from normal distributions.
-
-    Both phase terms are applied only to the simulated metabolite
-    signal. Measured water and lipid signals retain their original
-    complex phases.
-    """
+    """Metabolite simulation parameters."""
 
     profiles: tuple[MetaboliteProfileCfg, ...]
 
@@ -301,8 +410,7 @@ class MetaboliteCfg:
     def __post_init__(self) -> None:
         if not self.profiles:
             raise ValueError(
-                "metabolites.profiles must contain at least "
-                "one profile."
+                "metabolites.profiles must contain at least one profile."
             )
 
         probability_sum = sum(
@@ -317,123 +425,50 @@ class MetaboliteCfg:
             abs_tol=1e-6,
         ):
             raise ValueError(
-                "metabolites.profiles probabilities must sum "
-                "to 1. Found: "
-                f"{probability_sum:.12g}"
+                "metabolites.profiles probabilities must sum to 1. "
+                f"Found: {probability_sum:.12g}"
             )
 
 
 @dataclass(frozen=True)
 class SNRDistributionCfg:
-    """
-    Normal distribution of the target LCModel-compatible SNR.
+    """Positive mixture distribution of the target LCModel-compatible SNR."""
 
-    The sampled SNR is constrained to be greater than or equal to
-    min. Invalid draws are rejected and sampled again.
+    distribution: PositiveMixtureDistributionCfg
 
-    The lower bound prevents the required receiver-noise amplitude
-    from diverging as SNR approaches zero.
-    """
-
-    mean: float
-    std: float
-    min: float
-
-    def __post_init__(self) -> None:
-        if (
-            not math.isfinite(self.mean)
-            or self.mean <= 0
-        ):
-            raise ValueError(
-                "noise.snr.mean must be finite and > 0."
-            )
-
-        if (
-            not math.isfinite(self.std)
-            or self.std < 0
-        ):
-            raise ValueError(
-                "noise.snr.std must be finite and >= 0."
-            )
-
-        if (
-            not math.isfinite(self.min)
-            or self.min <= 0
-        ):
-            raise ValueError(
-                "noise.snr.min must be finite and > 0."
-            )
+    @property
+    def minimum(self) -> float:
+        return self.distribution.minimum
 
 
 @dataclass(frozen=True)
 class NoiseCfg:
-    """
-    Receiver-noise simulation parameters.
-
-    The target LCModel-compatible SNR is sampled from a normal
-    distribution with an explicit lower bound.
-
-    Receiver noise is subsequently scaled according to
-
-        SNR = maximum metabolite peak
-              / (2 * RMS(receiver noise)).
-    """
+    """Receiver-noise simulation parameters."""
 
     snr: SNRDistributionCfg
 
 
 @dataclass(frozen=True)
 class PositiveScalingDistributionCfg:
-    """
-    Normal distribution of a positive scaling factor.
+    """Positive mixture distribution of a dimensionless scaling factor."""
 
-    Non-positive draws are rejected and sampled again.
-    """
+    distribution: PositiveMixtureDistributionCfg
 
-    mean: float
-    std: float
-
-    def __post_init__(self) -> None:
-        if (
-            not math.isfinite(self.mean)
-            or self.mean <= 0
-        ):
-            raise ValueError(
-                "Scaling-distribution mean must be "
-                "finite and > 0."
-            )
-
-        if (
-            not math.isfinite(self.std)
-            or self.std < 0
-        ):
-            raise ValueError(
-                "Scaling-distribution std must be "
-                "finite and >= 0."
-            )
+    @property
+    def minimum(self) -> float:
+        return self.distribution.minimum
 
 
 @dataclass(frozen=True)
 class WaterCfg:
-    """
-    Water scaling relative to the maximum absolute
-    metabolite-spectrum amplitude.
-
-    Scaling is sampled from a normal distribution.
-    Non-positive draws are rejected and sampled again.
-    """
+    """Water scaling relative to the maximum metabolite amplitude."""
 
     scaling: PositiveScalingDistributionCfg
 
 
 @dataclass(frozen=True)
 class LipidCfg:
-    """
-    Lipid baseline simulation parameters.
-
-    Lipid scaling is sampled from a normal distribution.
-    Non-positive draws are rejected and sampled again.
-    """
+    """Lipid baseline simulation parameters."""
 
     n_random_fids: int
     scaling: PositiveScalingDistributionCfg
@@ -447,23 +482,7 @@ class LipidCfg:
 
 @dataclass(frozen=True)
 class SubjectSamplingCfg:
-    """
-    Controls how water and lipid resources are associated with
-    subjects.
-
-    Supported modes:
-
-        same_subject:
-            Water and all lipid FIDs come from the same subject.
-
-        separate_water_lipid_subjects:
-            Water comes from one subject and all lipid FIDs come
-            from one independently selected subject.
-
-        independent_lipid_fids:
-            Each individual lipid FID may come from a different
-            subject.
-    """
+    """Controls how water and lipid resources are associated with subjects."""
 
     mixing: str
 
@@ -484,18 +503,15 @@ class SubjectSamplingCfg:
 
 @dataclass(frozen=True)
 class LipidProjectionCfg:
-    """
-    Optional legacy lipid-projection output.
-
-    When enabled, the subject-specific stored operator is applied
-    to the complete simulated spectrum.
-    """
+    """Optional legacy lipid-projection output."""
 
     enabled: bool
 
 
 @dataclass(frozen=True)
 class SimulationConfig:
+    """Fully validated internal simulation configuration."""
+
     version: str
 
     acquisition: AcquisitionCfg
@@ -506,3 +522,9 @@ class SimulationConfig:
     lipids: LipidCfg
     subject_sampling: SubjectSamplingCfg
     lipid_projection: LipidProjectionCfg
+
+    def __post_init__(self) -> None:
+        if not self.version.strip():
+            raise ValueError(
+                "version must not be empty."
+            )

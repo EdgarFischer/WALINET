@@ -1,4 +1,4 @@
-version: "simulation_v4"
+version: "simulation_v5"
 
 
 acquisition:
@@ -26,61 +26,182 @@ basis:
 
 metabolites:
   profiles:
-    - config: "Metabos_healthy.yaml"
+    - config: "Metabos_healthy_7T.yaml"
       probability: 1.0
 
   # Global frequency shift in ppm.
   #
-  # Internally converted to Hz by the configuration builder.
+  # Model:
+  #
+  #   0.50 * Normal(center, normal_std)
+  # + 0.25 * (center + LogNormal(tail_log_mu, tail_log_sigma))
+  # + 0.25 * (center - LogNormal(tail_log_mu, tail_log_sigma))
+  #
+  # The lognormal tail is calibrated from:
+  #
+  #   abs(frequency_shift - center)
+  #
+  # Internally converted from ppm to Hz.
   frequency_shift:
-    mean_ppm: 0.00598877
-    std_ppm: 0.17798088
+    distribution:
+      type: "symmetric_mixture"
+
+      center_ppm: 0.0
+
+      normal:
+        std_ppm: 0.0578
+
+      lognormal_tail:
+        log_mu: -3.1
+        log_sigma: 1.23
 
   # Spectral FWHM in ppm.
   #
-  # Internally converted to Hz by the configuration builder.
+  # Model:
+  #
+  #   0.50 * zero-truncated Normal
+  # + 0.50 * LogNormal
+  #
+  # The normal component is rejected and resampled when FWHM <= 0.
+  # The sampled FWHM is subsequently converted from ppm to Hz.
   fwhm:
-    mean_ppm: 0.05585033
-    std_ppm: 0.12179410
+    distribution:
+      type: "positive_mixture"
+
+      normal:
+        mean_ppm: 0.056
+        std_ppm: 0.0452
+
+      lognormal:
+        log_mu: -2.88
+        log_sigma: 0.698
+
+      minimum_ppm: 0.0
 
   # Frequency-independent global phase rotation.
   #
+  # Model:
+  #
+  #   0.50 * Normal(center, normal_std)
+  # + 0.25 * (center + LogNormal(tail_log_mu, tail_log_sigma))
+  # + 0.25 * (center - LogNormal(tail_log_mu, tail_log_sigma))
+  #
+  # The lognormal tail is calibrated from:
+  #
+  #   abs(zero_order_phase - center)
+  #
   # Internally converted from degrees to radians.
   zero_order_phase:
-    mean_deg: -12.03211370
-    std_deg: 69.90085101
+    distribution:
+      type: "symmetric_mixture"
+
+      center_deg: -12.0
+
+      normal:
+        std_deg: 25.2
+
+      lognormal_tail:
+        log_mu: 2.89
+        log_sigma: 1.05
 
   # Linear phase slope over frequency.
   #
+  # Model:
+  #
+  #   0.50 * Normal(center, normal_std)
+  # + 0.25 * (center + LogNormal(tail_log_mu, tail_log_sigma))
+  # + 0.25 * (center - LogNormal(tail_log_mu, tail_log_sigma))
+  #
+  # The lognormal tail is calibrated from:
+  #
+  #   abs(first_order_phase - center)
+  #
   # Internally converted from deg/ppm to rad/Hz.
   first_order_phase:
-    mean_deg_per_ppm: 0.0
-    std_deg_per_ppm: 34.05923904
+    distribution:
+      type: "symmetric_mixture"
+
+      center_deg_per_ppm: 1.0
+
+      normal:
+        std_deg_per_ppm: 13.3
+
+      lognormal_tail:
+        log_mu: 2.2
+        log_sigma: 1.17
 
 
 noise:
   # LCModel-compatible target S/N:
   #
-  # S/N = maximum metabolite peak /
-  #       (2 * RMS(receiver noise))
+  #   S/N = maximum metabolite peak
+  #         / (2 * RMS(receiver noise))
+  #
+  # Model:
+  #
+  #   0.50 * truncated Normal
+  # + 0.50 * LogNormal
+  #
+  # Values below min are rejected and resampled.
   snr:
-    mean: 9
-    std: 14
-    min: 1.0
+    distribution:
+      type: "positive_mixture"
+
+      normal:
+        mean: 9
+        std: 5.19
+
+      lognormal:
+        log_mu: 2.2
+        log_sigma: 0.5732
+
+      min: 1.0
 
 
 water:
+  # Water amplitude relative to the maximum metabolite amplitude.
+  #
+  # Model:
+  #
+  #   0.50 * zero-truncated Normal
+  # + 0.50 * LogNormal
   scaling:
-    mean: 15.0
-    std: 25.0
+    distribution:
+      type: "positive_mixture"
+
+      normal:
+        mean: 32.4
+        std: 18.4
+
+      lognormal:
+        log_mu: 3.48
+        log_sigma: 0.55
+
+      minimum: 0.0
 
 
 lipids:
   n_random_fids: 10
 
+  # Lipid amplitude relative to the maximum metabolite amplitude.
+  #
+  # Model:
+  #
+  #   0.50 * zero-truncated Normal
+  # + 0.50 * LogNormal
   scaling:
-    mean: 2
-    std: 17.475
+    distribution:
+      type: "positive_mixture"
+
+      normal:
+        mean: 2.36
+        std: 3.32
+
+      lognormal:
+        log_mu: 0.857
+        log_sigma: 1.1
+
+      minimum: 0.0
 
 
 subject_sampling:

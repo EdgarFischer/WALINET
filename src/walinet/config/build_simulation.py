@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 from .schema_simulation import (
     AcquisitionCfg,
@@ -13,182 +14,496 @@ from .schema_simulation import (
     FWHMCfg,
     LipidCfg,
     LipidProjectionCfg,
+    LogNormalComponentCfg,
     MetaboliteCfg,
     MetaboliteProfileCfg,
     NoiseCfg,
+    NormalComponentCfg,
+    PositiveMixtureDistributionCfg,
     PositiveScalingDistributionCfg,
     SimulationConfig,
     SNRDistributionCfg,
     SubjectSamplingCfg,
+    SymmetricMixtureDistributionCfg,
     WaterCfg,
     ZeroOrderPhaseCfg,
 )
+
+
+# -----------------------------------------------------------------------------
+# Generic configuration readers
+# -----------------------------------------------------------------------------
+
+
+def _require_mapping(
+    mapping: dict[str, Any],
+    key: str,
+    *,
+    parameter_path: str,
+) -> dict[str, Any]:
+    """Read one required nested YAML mapping."""
+    if key not in mapping:
+        raise KeyError(
+            "Missing required configuration section: "
+            f"{parameter_path}.{key}"
+        )
+
+    value = mapping[key]
+
+    if not isinstance(value, dict):
+        raise TypeError(
+            f"{parameter_path}.{key} must be a mapping, "
+            f"but found {type(value).__name__}."
+        )
+
+    return value
+
+
+def _require_float(
+    mapping: dict[str, Any],
+    key: str,
+    *,
+    parameter_path: str,
+) -> float:
+    """Read one required finite float from a YAML mapping."""
+    if key not in mapping:
+        raise KeyError(
+            "Missing required configuration value: "
+            f"{parameter_path}.{key}"
+        )
+
+    value = mapping[key]
+
+    if value is None:
+        raise ValueError(
+            f"{parameter_path}.{key} must not be null."
+        )
+
+    try:
+        value_float = float(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(
+            f"{parameter_path}.{key} must be numeric, "
+            f"but found {value!r}."
+        ) from error
+
+    if not math.isfinite(value_float):
+        raise ValueError(
+            f"{parameter_path}.{key} must be finite."
+        )
+
+    return value_float
+
+
+def _require_int(
+    mapping: dict[str, Any],
+    key: str,
+    *,
+    parameter_path: str,
+) -> int:
+    """Read one required integer without silently truncating floats."""
+    if key not in mapping:
+        raise KeyError(
+            "Missing required configuration value: "
+            f"{parameter_path}.{key}"
+        )
+
+    value = mapping[key]
+
+    if value is None:
+        raise ValueError(
+            f"{parameter_path}.{key} must not be null."
+        )
+
+    if isinstance(value, bool):
+        raise TypeError(
+            f"{parameter_path}.{key} must be an integer, not bool."
+        )
+
+    try:
+        value_float = float(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(
+            f"{parameter_path}.{key} must be an integer, "
+            f"but found {value!r}."
+        ) from error
+
+    if (
+        not math.isfinite(value_float)
+        or not value_float.is_integer()
+    ):
+        raise ValueError(
+            f"{parameter_path}.{key} must be an integer, "
+            f"but found {value!r}."
+        )
+
+    return int(value_float)
+
+
+
+
+def _read_optional_bool(
+    mapping: dict[str, Any],
+    key: str,
+    *,
+    default: bool,
+    parameter_path: str,
+) -> bool:
+    """Read an optional YAML boolean without coercing strings."""
+    if key not in mapping:
+        return default
+
+    value = mapping[key]
+
+    if not isinstance(value, bool):
+        raise TypeError(
+            f"{parameter_path}.{key} must be a boolean, "
+            f"but found {value!r}."
+        )
+
+    return value
+
+def _require_string(
+    mapping: dict[str, Any],
+    key: str,
+    *,
+    parameter_path: str,
+) -> str:
+    """Read one required non-empty string."""
+    if key not in mapping:
+        raise KeyError(
+            "Missing required configuration value: "
+            f"{parameter_path}.{key}"
+        )
+
+    value = mapping[key]
+
+    if value is None:
+        raise ValueError(
+            f"{parameter_path}.{key} must not be null."
+        )
+
+    value_string = str(value).strip()
+
+    if not value_string:
+        raise ValueError(
+            f"{parameter_path}.{key} must not be empty."
+        )
+
+    return value_string
+
+
+def _read_distribution_type(
+    distribution_raw: dict[str, Any],
+    *,
+    expected: str,
+    parameter_path: str,
+) -> str:
+    """Read and validate ``distribution.type``."""
+    distribution_type = _require_string(
+        distribution_raw,
+        "type",
+        parameter_path=f"{parameter_path}.distribution",
+    ).lower()
+
+    if distribution_type != expected:
+        raise ValueError(
+            f"{parameter_path}.distribution.type must be "
+            f"{expected!r}, but found {distribution_type!r}."
+        )
+
+    return distribution_type
 
 
 def _resolve_path(
     path: str,
     config_dir: Path | None,
 ) -> str:
-    """
-    Resolve a path relative to the directory containing the
-    simulation YAML.
-
-    Empty paths remain empty.
-    """
+    """Resolve a path relative to the simulation YAML."""
     path = path.strip()
 
     if not path:
         return ""
 
-    resolved_path = Path(
-        path
-    ).expanduser()
+    resolved_path = Path(path).expanduser()
 
     if (
         config_dir is not None
         and not resolved_path.is_absolute()
     ):
-        resolved_path = (
-            config_dir
-            / resolved_path
-        )
+        resolved_path = config_dir / resolved_path
 
-    return str(
-        resolved_path.resolve()
-    )
+    return str(resolved_path.resolve())
+
+
+# -----------------------------------------------------------------------------
+# Unit conversions
+# -----------------------------------------------------------------------------
 
 
 def _calculate_hz_per_ppm(
     nmr_frequency_hz: float,
 ) -> float:
-    """
-    Calculate the frequency difference in Hz corresponding to 1 ppm.
-
-    Example
-    -------
-    At approximately 7 T proton frequency:
-
-        297222931 Hz / 1e6
-        = 297.222931 Hz/ppm
-    """
-    nmr_frequency_hz = float(
-        nmr_frequency_hz
-    )
-
     if (
         not math.isfinite(nmr_frequency_hz)
         or nmr_frequency_hz <= 0
     ):
         raise ValueError(
-            "acquisition.nmr_frequency_hz must be finite "
-            "and greater than zero."
+            "acquisition.nmr_frequency_hz must be finite and > 0."
         )
 
-    return (
-        nmr_frequency_hz
-        / 1e6
-    )
+    return nmr_frequency_hz / 1e6
 
 
-def _ppm_to_hz(
-    value_ppm: float,
+def _scale_linear_value(
+    value: float,
     *,
-    hz_per_ppm: float,
+    scale: float,
+    parameter_path: str,
 ) -> float:
-    """
-    Convert a frequency value from ppm to Hz.
-    """
-    value_ppm = float(
-        value_ppm
-    )
-
-    if not math.isfinite(
-        value_ppm
+    """Convert a linearly scaled quantity to the internal unit."""
+    if (
+        not math.isfinite(scale)
+        or scale <= 0
     ):
         raise ValueError(
-            "ppm configuration values must be finite."
+            f"Internal conversion scale for {parameter_path} "
+            "must be finite and > 0."
         )
 
-    return (
-        value_ppm
-        * hz_per_ppm
-    )
+    return float(value) * scale
 
 
-def _degrees_to_radians(
-    value_deg: float,
-) -> float:
-    """
-    Convert degrees to radians.
-    """
-    value_deg = float(
-        value_deg
-    )
-
-    if not math.isfinite(
-        value_deg
-    ):
-        raise ValueError(
-            "Phase configuration values in degrees "
-            "must be finite."
-        )
-
-    return math.radians(
-        value_deg
-    )
-
-
-def _degrees_per_ppm_to_radians_per_hz(
-    value_deg_per_ppm: float,
+def _scale_lognormal_location(
+    log_mu: float,
     *,
-    hz_per_ppm: float,
+    scale: float,
+    parameter_path: str,
 ) -> float:
     """
-    Convert a first-order phase slope from deg/ppm to rad/Hz.
+    Convert a lognormal location parameter under ``Y = scale * X``.
 
-    Conversion
-    ----------
-    deg/ppm
-        -> rad/ppm
-        -> rad/Hz
+        log_mu_Y = log_mu_X + log(scale)
     """
-    value_deg_per_ppm = float(
-        value_deg_per_ppm
-    )
-
-    if not math.isfinite(
-        value_deg_per_ppm
+    if (
+        not math.isfinite(scale)
+        or scale <= 0
     ):
         raise ValueError(
-            "First-order phase values in deg/ppm "
-            "must be finite."
+            f"Internal lognormal conversion scale for {parameter_path} "
+            "must be finite and > 0."
         )
 
-    return (
-        math.radians(
-            value_deg_per_ppm
-        )
-        / hz_per_ppm
+    return float(log_mu) + math.log(scale)
+
+
+# -----------------------------------------------------------------------------
+# Generic distribution builders
+# -----------------------------------------------------------------------------
+
+
+def _build_positive_mixture_distribution(
+    raw: dict[str, Any],
+    *,
+    parameter_path: str,
+    normal_mean_key: str,
+    normal_std_key: str,
+    minimum_key: str,
+    linear_scale: float = 1.0,
+) -> PositiveMixtureDistributionCfg:
+    """
+    Build a positive 50/50 truncated-normal/lognormal mixture.
+
+    ``linear_scale`` converts numerical values from the YAML unit to the
+    simulator's internal unit. The same scale is applied to the normal mean,
+    normal standard deviation, lower bound, and lognormal location.
+    ``log_sigma`` is unchanged.
+    """
+    distribution_raw = _require_mapping(
+        raw,
+        "distribution",
+        parameter_path=parameter_path,
     )
+
+    distribution_type = _read_distribution_type(
+        distribution_raw,
+        expected="positive_mixture",
+        parameter_path=parameter_path,
+    )
+
+    normal_raw = _require_mapping(
+        distribution_raw,
+        "normal",
+        parameter_path=f"{parameter_path}.distribution",
+    )
+
+    lognormal_raw = _require_mapping(
+        distribution_raw,
+        "lognormal",
+        parameter_path=f"{parameter_path}.distribution",
+    )
+
+    normal_mean = _scale_linear_value(
+        _require_float(
+            normal_raw,
+            normal_mean_key,
+            parameter_path=f"{parameter_path}.distribution.normal",
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    normal_std = _scale_linear_value(
+        _require_float(
+            normal_raw,
+            normal_std_key,
+            parameter_path=f"{parameter_path}.distribution.normal",
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    log_mu = _scale_lognormal_location(
+        _require_float(
+            lognormal_raw,
+            "log_mu",
+            parameter_path=f"{parameter_path}.distribution.lognormal",
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    log_sigma = _require_float(
+        lognormal_raw,
+        "log_sigma",
+        parameter_path=f"{parameter_path}.distribution.lognormal",
+    )
+
+    minimum = _scale_linear_value(
+        _require_float(
+            distribution_raw,
+            minimum_key,
+            parameter_path=f"{parameter_path}.distribution",
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    return PositiveMixtureDistributionCfg(
+        type=distribution_type,
+        normal=NormalComponentCfg(
+            mean=normal_mean,
+            std=normal_std,
+        ),
+        lognormal=LogNormalComponentCfg(
+            log_mu=log_mu,
+            log_sigma=log_sigma,
+        ),
+        minimum=minimum,
+    )
+
+
+def _build_symmetric_mixture_distribution(
+    raw: dict[str, Any],
+    *,
+    parameter_path: str,
+    center_key: str,
+    normal_std_key: str,
+    linear_scale: float,
+) -> SymmetricMixtureDistributionCfg:
+    """
+    Build a signed normal-core/symmetric-lognormal-tail mixture.
+
+    ``linear_scale`` converts the center, normal standard deviation, and tail
+    magnitudes from the YAML unit to the simulator's internal unit.
+    """
+    distribution_raw = _require_mapping(
+        raw,
+        "distribution",
+        parameter_path=parameter_path,
+    )
+
+    distribution_type = _read_distribution_type(
+        distribution_raw,
+        expected="symmetric_mixture",
+        parameter_path=parameter_path,
+    )
+
+    normal_raw = _require_mapping(
+        distribution_raw,
+        "normal",
+        parameter_path=f"{parameter_path}.distribution",
+    )
+
+    tail_raw = _require_mapping(
+        distribution_raw,
+        "lognormal_tail",
+        parameter_path=f"{parameter_path}.distribution",
+    )
+
+    center = _scale_linear_value(
+        _require_float(
+            distribution_raw,
+            center_key,
+            parameter_path=f"{parameter_path}.distribution",
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    normal_std = _scale_linear_value(
+        _require_float(
+            normal_raw,
+            normal_std_key,
+            parameter_path=f"{parameter_path}.distribution.normal",
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    tail_log_mu = _scale_lognormal_location(
+        _require_float(
+            tail_raw,
+            "log_mu",
+            parameter_path=(
+                f"{parameter_path}.distribution.lognormal_tail"
+            ),
+        ),
+        scale=linear_scale,
+        parameter_path=parameter_path,
+    )
+
+    tail_log_sigma = _require_float(
+        tail_raw,
+        "log_sigma",
+        parameter_path=(
+            f"{parameter_path}.distribution.lognormal_tail"
+        ),
+    )
+
+    return SymmetricMixtureDistributionCfg(
+        type=distribution_type,
+        normal=NormalComponentCfg(
+            mean=center,
+            std=normal_std,
+        ),
+        lognormal_tail=LogNormalComponentCfg(
+            log_mu=tail_log_mu,
+            log_sigma=tail_log_sigma,
+        ),
+    )
+
+
+# -----------------------------------------------------------------------------
+# Cross-component validation
+# -----------------------------------------------------------------------------
 
 
 def validate_simulation_config(
     cfg: SimulationConfig,
 ) -> None:
-    """
-    Validate cross-component configuration constraints.
-
-    Parameter-specific validation is performed by the individual
-    frozen dataclasses in schema_simulation.py.
-    """
-    if not cfg.version.strip():
-        raise ValueError(
-            "version must not be empty."
-        )
-
-    basis_library = Path(
-        cfg.basis.library
-    )
+    """Validate constraints involving more than one config section."""
+    basis_library = Path(cfg.basis.library)
 
     if not basis_library.is_file():
         raise FileNotFoundError(
@@ -197,9 +512,7 @@ def validate_simulation_config(
         )
 
     for profile in cfg.metabolites.profiles:
-        profile_path = Path(
-            profile.config
-        )
+        profile_path = Path(profile.config)
 
         if not profile_path.is_file():
             raise FileNotFoundError(
@@ -207,18 +520,19 @@ def validate_simulation_config(
                 f"  {profile_path}"
             )
 
-    # The stored subject-specific projection operator is only
-    # unambiguous in the exact legacy-style subject association.
     if (
         cfg.lipid_projection.enabled
-        and cfg.subject_sampling.mixing
-        != "same_subject"
+        and cfg.subject_sampling.mixing != "same_subject"
     ):
         raise ValueError(
-            "lipid_projection.enabled may currently only be "
-            "used with "
+            "lipid_projection.enabled may currently only be used with "
             "subject_sampling.mixing='same_subject'."
         )
+
+
+# -----------------------------------------------------------------------------
+# Public builder
+# -----------------------------------------------------------------------------
 
 
 def build_simulation_config(
@@ -226,379 +540,301 @@ def build_simulation_config(
     config_dir: Path | None = None,
 ) -> SimulationConfig:
     """
-    Build and validate the internal typed simulation configuration.
+    Build the typed runtime configuration from the nested simulation YAML.
 
-    The YAML configuration uses human-readable LCModel-style units:
+    YAML units
+    ----------
+    frequency shift:
+        ppm
+    FWHM:
+        ppm
+    zero-order phase:
+        degrees
+    first-order phase:
+        degrees per ppm
 
-        frequency shift:
-            ppm
+    Internal units
+    --------------
+    frequency shift:
+        Hz
+    FWHM:
+        Hz
+    zero-order phase:
+        radians
+    first-order phase:
+        radians per Hz
 
-        FWHM:
-            ppm
+    For every lognormal magnitude parameter transformed as ``Y = scale * X``:
 
-        zero-order phase:
-            degrees
-
-        first-order phase:
-            degrees per ppm
-
-    This builder converts these values into the internal units expected
-    by the existing simulator:
-
-        frequency shift:
-            Hz
-
-        FWHM:
-            Hz
-
-        zero-order phase:
-            radians
-
-        first-order phase:
-            radians per Hz
-
-    The resulting SimulationConfig therefore remains fully compatible
-    with the existing simulator code.
+        log_mu_Y = log_mu_X + log(scale)
+        log_sigma_Y = log_sigma_X
     """
+    if not isinstance(raw, dict):
+        raise TypeError(
+            "Simulation configuration must be a top-level mapping."
+        )
 
-    # ---------------------------------------------------------
-    # Version
-    # ---------------------------------------------------------
-    version = str(
-        raw["version"]
+    version = _require_string(
+        raw,
+        "version",
+        parameter_path="simulation",
     )
 
-    # ---------------------------------------------------------
-    # Acquisition
-    # ---------------------------------------------------------
-    acquisition_raw = raw[
-        "acquisition"
-    ]
+    # Acquisition -------------------------------------------------------------
+    acquisition_raw = _require_mapping(
+        raw,
+        "acquisition",
+        parameter_path="simulation",
+    )
 
     acquisition = AcquisitionCfg(
-        bandwidth_hz=float(
-            acquisition_raw[
-                "bandwidth_hz"
-            ]
+        bandwidth_hz=_require_float(
+            acquisition_raw,
+            "bandwidth_hz",
+            parameter_path="acquisition",
         ),
-        n_timepoints=int(
-            acquisition_raw[
-                "n_timepoints"
-            ]
+        n_timepoints=_require_int(
+            acquisition_raw,
+            "n_timepoints",
+            parameter_path="acquisition",
         ),
-        min_acquired_n_timepoints=int(
-            acquisition_raw[
-                "min_acquired_n_timepoints"
-            ]
+        min_acquired_n_timepoints=_require_int(
+            acquisition_raw,
+            "min_acquired_n_timepoints",
+            parameter_path="acquisition",
         ),
-        max_acquired_n_timepoints=int(
-            acquisition_raw[
-                "max_acquired_n_timepoints"
-            ]
+        max_acquired_n_timepoints=_require_int(
+            acquisition_raw,
+            "max_acquired_n_timepoints",
+            parameter_path="acquisition",
         ),
-        nmr_frequency_hz=float(
-            acquisition_raw[
-                "nmr_frequency_hz"
-            ]
+        nmr_frequency_hz=_require_float(
+            acquisition_raw,
+            "nmr_frequency_hz",
+            parameter_path="acquisition",
         ),
     )
 
-    # Conversion factor used for all ppm-based quantities.
     hz_per_ppm = _calculate_hz_per_ppm(
         acquisition.nmr_frequency_hz
     )
 
-    # ---------------------------------------------------------
-    # Basis
-    # ---------------------------------------------------------
-    basis_raw = raw[
-        "basis"
-    ]
+    # Basis -------------------------------------------------------------------
+    basis_raw = _require_mapping(
+        raw,
+        "basis",
+        parameter_path="simulation",
+    )
 
     basis = BasisCfg(
         library=_resolve_path(
-            str(
-                basis_raw[
-                    "library"
-                ]
+            _require_string(
+                basis_raw,
+                "library",
+                parameter_path="basis",
             ),
             config_dir,
-        ),
+        )
     )
 
-    # ---------------------------------------------------------
-    # Metabolite profiles
-    # ---------------------------------------------------------
-    metabolites_raw = raw[
-        "metabolites"
-    ]
+    # Metabolite profiles -----------------------------------------------------
+    metabolites_raw = _require_mapping(
+        raw,
+        "metabolites",
+        parameter_path="simulation",
+    )
 
-    profiles_raw = metabolites_raw[
-        "profiles"
-    ]
+    profiles_raw = metabolites_raw.get("profiles")
 
-    if not isinstance(
-        profiles_raw,
-        list,
-    ):
+    if not isinstance(profiles_raw, list):
         raise TypeError(
             "metabolites.profiles must be a list."
         )
 
-    profiles: list[
-        MetaboliteProfileCfg
-    ] = []
+    profiles: list[MetaboliteProfileCfg] = []
 
-    for profile_index, profile_raw in enumerate(
-        profiles_raw
-    ):
-        if not isinstance(
-            profile_raw,
-            dict,
-        ):
+    for profile_index, profile_raw in enumerate(profiles_raw):
+        parameter_path = f"metabolites.profiles[{profile_index}]"
+
+        if not isinstance(profile_raw, dict):
             raise TypeError(
-                "Each metabolites.profiles entry must be "
-                "a mapping. Invalid entry at index "
-                f"{profile_index}."
+                f"{parameter_path} must be a mapping."
             )
 
         profiles.append(
             MetaboliteProfileCfg(
                 config=_resolve_path(
-                    str(
-                        profile_raw[
-                            "config"
-                        ]
+                    _require_string(
+                        profile_raw,
+                        "config",
+                        parameter_path=parameter_path,
                     ),
                     config_dir,
                 ),
-                probability=float(
-                    profile_raw[
-                        "probability"
-                    ]
+                probability=_require_float(
+                    profile_raw,
+                    "probability",
+                    parameter_path=parameter_path,
                 ),
             )
         )
 
-    # ---------------------------------------------------------
-    # Frequency shift
-    #
-    # YAML:
-    #     ppm
-    #
-    # Internal SimulationConfig:
-    #     Hz
-    # ---------------------------------------------------------
-    frequency_shift_raw = metabolites_raw[
-        "frequency_shift"
-    ]
-
+    # Signed metabolite parameters -------------------------------------------
     frequency_shift = FrequencyShiftCfg(
-        mean_hz=_ppm_to_hz(
-            frequency_shift_raw[
-                "mean_ppm"
-            ],
-            hz_per_ppm=hz_per_ppm,
-        ),
-        std_hz=_ppm_to_hz(
-            frequency_shift_raw[
-                "std_ppm"
-            ],
-            hz_per_ppm=hz_per_ppm,
-        ),
+        distribution=_build_symmetric_mixture_distribution(
+            _require_mapping(
+                metabolites_raw,
+                "frequency_shift",
+                parameter_path="metabolites",
+            ),
+            parameter_path="metabolites.frequency_shift",
+            center_key="center_ppm",
+            normal_std_key="std_ppm",
+            linear_scale=hz_per_ppm,
+        )
     )
 
-    # ---------------------------------------------------------
-    # FWHM
-    #
-    # YAML:
-    #     ppm
-    #
-    # Internal SimulationConfig:
-    #     Hz
-    # ---------------------------------------------------------
-    fwhm_raw = metabolites_raw[
-        "fwhm"
-    ]
-
-    fwhm = FWHMCfg(
-        mean_hz=_ppm_to_hz(
-            fwhm_raw[
-                "mean_ppm"
-            ],
-            hz_per_ppm=hz_per_ppm,
-        ),
-        std_hz=_ppm_to_hz(
-            fwhm_raw[
-                "std_ppm"
-            ],
-            hz_per_ppm=hz_per_ppm,
-        ),
-    )
-
-    # ---------------------------------------------------------
-    # Zero-order phase
-    #
-    # YAML:
-    #     degrees
-    #
-    # Internal SimulationConfig:
-    #     radians
-    # ---------------------------------------------------------
-    zero_order_phase_raw = metabolites_raw[
-        "zero_order_phase"
-    ]
+    degrees_to_radians_scale = math.pi / 180.0
 
     zero_order_phase = ZeroOrderPhaseCfg(
-        mean_rad=_degrees_to_radians(
-            zero_order_phase_raw[
-                "mean_deg"
-            ]
-        ),
-        std_rad=_degrees_to_radians(
-            zero_order_phase_raw[
-                "std_deg"
-            ]
-        ),
+        distribution=_build_symmetric_mixture_distribution(
+            _require_mapping(
+                metabolites_raw,
+                "zero_order_phase",
+                parameter_path="metabolites",
+            ),
+            parameter_path="metabolites.zero_order_phase",
+            center_key="center_deg",
+            normal_std_key="std_deg",
+            linear_scale=degrees_to_radians_scale,
+        )
     )
 
-    # ---------------------------------------------------------
-    # First-order phase
-    #
-    # YAML:
-    #     degrees per ppm
-    #
-    # Internal SimulationConfig:
-    #     radians per Hz
-    # ---------------------------------------------------------
-    first_order_phase_raw = metabolites_raw[
-        "first_order_phase"
-    ]
+    degrees_per_ppm_to_radians_per_hz_scale = (
+        degrees_to_radians_scale / hz_per_ppm
+    )
 
     first_order_phase = FirstOrderPhaseCfg(
-        mean_rad_per_hz=(
-            _degrees_per_ppm_to_radians_per_hz(
-                first_order_phase_raw[
-                    "mean_deg_per_ppm"
-                ],
-                hz_per_ppm=hz_per_ppm,
-            )
-        ),
-        std_rad_per_hz=(
-            _degrees_per_ppm_to_radians_per_hz(
-                first_order_phase_raw[
-                    "std_deg_per_ppm"
-                ],
-                hz_per_ppm=hz_per_ppm,
-            )
-        ),
+        distribution=_build_symmetric_mixture_distribution(
+            _require_mapping(
+                metabolites_raw,
+                "first_order_phase",
+                parameter_path="metabolites",
+            ),
+            parameter_path="metabolites.first_order_phase",
+            center_key="center_deg_per_ppm",
+            normal_std_key="std_deg_per_ppm",
+            linear_scale=(
+                degrees_per_ppm_to_radians_per_hz_scale
+            ),
+        )
+    )
+
+    # Positive metabolite FWHM ------------------------------------------------
+    fwhm = FWHMCfg(
+        distribution=_build_positive_mixture_distribution(
+            _require_mapping(
+                metabolites_raw,
+                "fwhm",
+                parameter_path="metabolites",
+            ),
+            parameter_path="metabolites.fwhm",
+            normal_mean_key="mean_ppm",
+            normal_std_key="std_ppm",
+            minimum_key="minimum_ppm",
+            linear_scale=hz_per_ppm,
+        )
     )
 
     metabolites = MetaboliteCfg(
-        profiles=tuple(
-            profiles
-        ),
+        profiles=tuple(profiles),
         frequency_shift=frequency_shift,
         fwhm=fwhm,
         zero_order_phase=zero_order_phase,
         first_order_phase=first_order_phase,
     )
 
-    # ---------------------------------------------------------
-    # Noise
-    # ---------------------------------------------------------
-    noise_raw = raw[
-        "noise"
-    ]
+    # Noise -------------------------------------------------------------------
+    noise_raw = _require_mapping(
+        raw,
+        "noise",
+        parameter_path="simulation",
+    )
 
-    snr_raw = noise_raw[
-        "snr"
-    ]
-
-    noise = NoiseCfg(
-        snr=SNRDistributionCfg(
-            mean=float(
-                snr_raw[
-                    "mean"
-                ]
+    snr = SNRDistributionCfg(
+        distribution=_build_positive_mixture_distribution(
+            _require_mapping(
+                noise_raw,
+                "snr",
+                parameter_path="noise",
             ),
-            std=float(
-                snr_raw[
-                    "std"
-                ]
-            ),
-            min=float(
-                snr_raw[
-                    "min"
-                ]
-            ),
+            parameter_path="noise.snr",
+            normal_mean_key="mean",
+            normal_std_key="std",
+            minimum_key="min",
         )
     )
 
-    # ---------------------------------------------------------
-    # Water
-    # ---------------------------------------------------------
-    water_raw = raw[
-        "water"
-    ]
+    noise = NoiseCfg(snr=snr)
 
-    water_scaling_raw = water_raw[
-        "scaling"
-    ]
+    # Water -------------------------------------------------------------------
+    water_raw = _require_mapping(
+        raw,
+        "water",
+        parameter_path="simulation",
+    )
 
     water = WaterCfg(
         scaling=PositiveScalingDistributionCfg(
-            mean=float(
-                water_scaling_raw[
-                    "mean"
-                ]
-            ),
-            std=float(
-                water_scaling_raw[
-                    "std"
-                ]
-            ),
+            distribution=_build_positive_mixture_distribution(
+                _require_mapping(
+                    water_raw,
+                    "scaling",
+                    parameter_path="water",
+                ),
+                parameter_path="water.scaling",
+                normal_mean_key="mean",
+                normal_std_key="std",
+                minimum_key="minimum",
+            )
         )
     )
 
-    # ---------------------------------------------------------
-    # Lipids
-    # ---------------------------------------------------------
-    lipids_raw = raw[
-        "lipids"
-    ]
-
-    lipid_scaling_raw = lipids_raw[
-        "scaling"
-    ]
+    # Lipids ------------------------------------------------------------------
+    lipids_raw = _require_mapping(
+        raw,
+        "lipids",
+        parameter_path="simulation",
+    )
 
     lipids = LipidCfg(
-        n_random_fids=int(
-            lipids_raw[
-                "n_random_fids"
-            ]
+        n_random_fids=_require_int(
+            lipids_raw,
+            "n_random_fids",
+            parameter_path="lipids",
         ),
         scaling=PositiveScalingDistributionCfg(
-            mean=float(
-                lipid_scaling_raw[
-                    "mean"
-                ]
-            ),
-            std=float(
-                lipid_scaling_raw[
-                    "std"
-                ]
-            ),
+            distribution=_build_positive_mixture_distribution(
+                _require_mapping(
+                    lipids_raw,
+                    "scaling",
+                    parameter_path="lipids",
+                ),
+                parameter_path="lipids.scaling",
+                normal_mean_key="mean",
+                normal_std_key="std",
+                minimum_key="minimum",
+            )
         ),
     )
 
-    # ---------------------------------------------------------
-    # Subject sampling
-    # ---------------------------------------------------------
-    subject_sampling_raw = raw.get(
-        "subject_sampling",
-        {},
-    )
+    # Subject sampling --------------------------------------------------------
+    subject_sampling_raw = raw.get("subject_sampling", {})
+
+    if not isinstance(subject_sampling_raw, dict):
+        raise TypeError(
+            "subject_sampling must be a mapping."
+        )
 
     subject_sampling = SubjectSamplingCfg(
         mixing=str(
@@ -606,29 +842,26 @@ def build_simulation_config(
                 "mixing",
                 "same_subject",
             )
-        ),
+        ).strip()
     )
 
-    # ---------------------------------------------------------
-    # Optional legacy lipid projection
-    # ---------------------------------------------------------
-    lipid_projection_raw = raw.get(
-        "lipid_projection",
-        {},
-    )
+    # Optional lipid projection ----------------------------------------------
+    lipid_projection_raw = raw.get("lipid_projection", {})
+
+    if not isinstance(lipid_projection_raw, dict):
+        raise TypeError(
+            "lipid_projection must be a mapping."
+        )
 
     lipid_projection = LipidProjectionCfg(
-        enabled=bool(
-            lipid_projection_raw.get(
-                "enabled",
-                False,
-            )
-        ),
+        enabled=_read_optional_bool(
+            lipid_projection_raw,
+            "enabled",
+            default=False,
+            parameter_path="lipid_projection",
+        )
     )
 
-    # ---------------------------------------------------------
-    # Complete internal runtime configuration
-    # ---------------------------------------------------------
     cfg = SimulationConfig(
         version=version,
         acquisition=acquisition,
@@ -641,8 +874,6 @@ def build_simulation_config(
         lipid_projection=lipid_projection,
     )
 
-    validate_simulation_config(
-        cfg
-    )
+    validate_simulation_config(cfg)
 
     return cfg
