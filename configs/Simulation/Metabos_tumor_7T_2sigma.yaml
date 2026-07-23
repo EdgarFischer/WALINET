@@ -25,8 +25,8 @@ metabolites:
         std: null
 
       lognormal:
-        log_mu: -0.111572
-        log_sigma: 0.472381
+        log_mu: null
+        log_sigma: null
 
       minimum: 0.0
 
@@ -42,14 +42,14 @@ metabolites:
         std: null
 
       lognormal:
-        log_mu: 1.312774
-        log_sigma: 0.770277
+        log_mu: null
+        log_sigma: null
 
       minimum: 0.0
 
 
   Asp:
-    enabled: true
+    enabled: false
     basis_component: Asp
     distribution:
       type: positive_mixture
@@ -77,8 +77,8 @@ metabolites:
         std: null
 
       lognormal:
-        log_mu: -1.039721
-        log_sigma: 0.832555
+        log_mu: null
+        log_sigma: null
 
       minimum: 0.0
 
@@ -90,14 +90,30 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.525
-        std: 0.971
+        mean: 0.813
+        std: 0.977
 
       lognormal:
-        log_mu: -0.644
-        log_sigma: 1.58
+        log_mu: -0.207
+        log_sigma: 1.2
 
       minimum: 0.0
+
+  Cys:
+    enabled: true
+    basis_component: Cys
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.139
+        std: 0.241
+
+      lognormal:
+        log_mu: -1.98
+        log_sigma: 1.74
+
+      minimum: 0.0    
 
 
   GABA:
@@ -107,18 +123,18 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.115
-        std: 0.239
+        mean: 0.196
+        std: 0.478
 
       lognormal:
-        log_mu: -2.16
-        log_sigma: 2.09
+        log_mu: -1.63
+        log_sigma: 2.29
 
       minimum: 0.0
 
 
   Glc:
-    enabled: true
+    enabled: false
     basis_component: Glc
     distribution:
       type: positive_mixture
@@ -141,12 +157,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.401
-        std: 1.14
+        mean: 0.441
+        std: 0.876
 
       lognormal:
-        log_mu: -0.914
-        log_sigma: 2.33
+        log_mu: -0.818
+        log_sigma: 1.86
 
       minimum: 0.0
 
@@ -158,29 +174,29 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 1.11
-        std: 1.55
+        mean: 1.25
+        std: 1.61
 
       lognormal:
-        log_mu: 0.102
-        log_sigma: 1.3
+        log_mu: 0.226
+        log_sigma: 1.22
 
       minimum: 0.0
 
 
   Gly:
-    enabled: false
+    enabled: true
     basis_component: Gly
     distribution:
       type: positive_mixture
 
       normal:
-        mean: null
-        std: null
+        mean: 0.143
+        std: 0.305
 
       lognormal:
-        log_mu: -1.039721
-        log_sigma: 0.832555
+        log_mu: -1.94
+        log_sigma: 1.96
 
       minimum: 0.0
 
@@ -192,12 +208,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.22
-        std: 0.282
+        mean: 0.26
+        std: 0.277
 
       lognormal:
-        log_mu: -1.51
-        log_sigma: 1.19
+        log_mu: -1.35
+        log_sigma: 1.05
 
       minimum: 0.0
 
@@ -209,12 +225,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.217
-        std: 0.479
+        mean: 0.22
+        std: 0.333
 
       lognormal:
-        log_mu: -1.53
-        log_sigma: 1.87
+        log_mu: -1.51
+        log_sigma: 1.46
 
       minimum: 0.0
 
@@ -226,12 +242,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.732
-        std: 0.968
+        mean: 0.879
+        std: 0.919
 
       lognormal:
-        log_mu: -0.312
-        log_sigma: 1.19
+        log_mu: -0.129
+        log_sigma: 1.02
 
       minimum: 0.0
 
@@ -247,8 +263,8 @@ metabolites:
         std: null
 
       lognormal:
-        log_mu: -3.000707
-        log_sigma: 2.148283
+        log_mu: null
+        log_sigma: null
 
       minimum: 0.0
 
@@ -260,12 +276,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 1.38
-        std: 1.07
+        mean: 1.34
+        std: 0.861
 
       lognormal:
-        log_mu: 0.319
-        log_sigma: 0.744
+        log_mu: 0.296
+        log_sigma: 0.62
 
       minimum: 0.0
 
@@ -277,12 +293,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.263
-        std: 0.464
+        mean: 0.357
+        std: 0.841
 
       lognormal:
-        log_mu: -1.34
-        log_sigma: 1.69
+        log_mu: -1.03
+        log_sigma: 2.09
 
       minimum: 0.0
 
@@ -294,12 +310,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.0953
-        std: 0.266
+        mean: 0.107
+        std: 0.221
 
       lognormal:
-        log_mu: -2.35
-        log_sigma: 2.47
+        log_mu: -2.24
+        log_sigma: 1.91
 
       minimum: 0.0
 
@@ -311,12 +327,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.539
-        std: 0.903
+        mean: 0.305
+        std: 0.438
 
       lognormal:
-        log_mu: -0.619
-        log_sigma: 1.5
+        log_mu: -1.19
+        log_sigma: 1.41
 
       minimum: 0.0
 
@@ -333,8 +349,8 @@ metabolites:
         std: null
 
       lognormal:
-        log_mu: -1.039721
-        log_sigma: 0.832555
+        log_mu: null
+        log_sigma: null
 
       minimum: 0.0
 
@@ -346,12 +362,28 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.0303
-        std: 0.0452
+        mean: 0.038
+        std: 0.0463
 
       lognormal:
-        log_mu: -3.5
-        log_sigma: 1.4
+        log_mu: -3.27
+        log_sigma: 1.23
+
+      minimum: 0.0
+
+  Ser:
+    enabled: true
+    basis_component: Ser
+    distribution:
+      type: positive_mixture
+
+      normal:
+        mean: 0.23
+        std: 0.503
+
+      lognormal:
+        log_mu: -1.47
+        log_sigma: 1.97
 
       minimum: 0.0
 
@@ -368,8 +400,8 @@ metabolites:
         std: null
 
       lognormal:
-        log_mu: -1.039721
-        log_sigma: 0.832555
+        log_mu: null
+        log_sigma: null
 
       minimum: 0.0
 
@@ -381,12 +413,12 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.131
-        std: 0.328
+        mean: 0.286
+        std: 0.355
 
       lognormal:
-        log_mu: -2.03
-        log_sigma: 2.19
+        log_mu: -1.25
+        log_sigma: 1.18
 
       minimum: 0.0
 
@@ -398,11 +430,11 @@ metabolites:
       type: positive_mixture
 
       normal:
-        mean: 0.613
-        std: 2.75
+        mean: 1.04
+        std: 2.5
 
       lognormal:
-        log_mu: -0.49
-        log_sigma: 3.38
+        log_mu: -0.0348
+        log_sigma: 2.27
 
       minimum: 0.0

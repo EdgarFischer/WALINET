@@ -2,14 +2,14 @@ version: "simulation_v5"
 
 
 acquisition:
-  bandwidth_hz: 2778.0
+  bandwidth_hz: 939.85
 
   # Fixed internal and output length after zero-filling.
-  n_timepoints: 840
+  n_timepoints: 288
 
   # Actually acquired FID samples before zero-filling.
-  min_acquired_n_timepoints: 420
-  max_acquired_n_timepoints: 840
+  min_acquired_n_timepoints: 144
+  max_acquired_n_timepoints: 288
 
   # Larmor frequency of the acquisition.
   #
@@ -17,20 +17,18 @@ acquisition:
   # frequency parameters into the simulator's internal unit Hz.
   #
   # hz_per_ppm = nmr_frequency_hz / 1e6
-  nmr_frequency_hz: 297222931
+  nmr_frequency_hz: 123231706.0
 
 
 basis:
-  library: "../../MetabModes/LCModelBasis/processed/7T_basis_tumor_v1.h5"
+  library: "../../MetabModes/LCModelBasis/processed/3T_basis_healthy_v1.h5"
 
 
 metabolites:
   profiles:
-    - config: "Metabos_healthy_7T_2sigma.yaml"
-      probability: 0.7
-    
-    - config: "Metabos_tumor_7T_2sigma.yaml"
-      probability: 0.3
+    - config: "Metabos_healthy_3T_2sigma.yaml"
+      probability: 1
+  
 
   # Global frequency shift in ppm.
   #
@@ -52,11 +50,11 @@ metabolites:
       center_ppm: 0.0
 
       normal:
-        std_ppm: 0.116
+        std_ppm: 0.216
 
       lognormal_tail:
-        log_mu: -3.1
-        log_sigma: 2.45
+        log_mu: -2.54
+        log_sigma: 1.77
 
   # Spectral FWHM in ppm.
   #
@@ -72,12 +70,12 @@ metabolites:
       type: "positive_mixture"
 
       normal:
-        mean_ppm: 0.056
-        std_ppm: 0.045 #2 sigma originally: 0.0904
+        mean_ppm: 0.079 
+        std_ppm: 0.039 #2 sigma originally: 0.0786
 
       lognormal:
-        log_mu: -2.88
-        log_sigma: 0.7 # 2 sigma oringally: 1.4
+        log_mu: -2.54
+        log_sigma: 0.515 # 2 sigma oringally: 1.03
 
       minimum_ppm: 0.0
 
@@ -98,14 +96,14 @@ metabolites:
     distribution:
       type: "symmetric_mixture"
 
-      center_deg: -12.0
+      center_deg: 28.0
 
       normal:
-        std_deg: 50.4
+        std_deg: 91.9
 
       lognormal_tail:
-        log_mu: 2.89
-        log_sigma: 2.1
+        log_mu: 3.43
+        log_sigma: 2.06
 
   # Linear phase slope over frequency.
   #
@@ -124,14 +122,14 @@ metabolites:
     distribution:
       type: "symmetric_mixture"
 
-      center_deg_per_ppm: 1.0
+      center_deg_per_ppm: 3.4
 
       normal:
-        std_deg_per_ppm: 26.7
+        std_deg_per_ppm: 40.2
 
       lognormal_tail:
-        log_mu: 2.2
-        log_sigma: 2.34
+        log_mu: 2.61
+        log_sigma: 2.29
 
 
 noise:
@@ -151,12 +149,12 @@ noise:
       type: "positive_mixture"
 
       normal:
-        mean: 9
-        std: 5.19
+        mean: 3
+        std: 4.45
 
       lognormal:
-        log_mu: 2.2
-        log_sigma: 0.5732
+        log_mu: 1.1
+        log_sigma: 1.36
 
       min: 1.0
 

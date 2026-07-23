@@ -529,3 +529,43 @@ def load_calibration_maps(subject_dirs, suffix=".nii.gz"):
         }
 
     return data
+
+
+from collections.abc import Sequence
+from pathlib import Path
+
+import nibabel as nib
+import numpy as np
+
+
+def load_subject_maps_by_subject(
+    base_paths: Sequence[str | Path],
+    relative_path: str | Path,
+    extension: str = ".nii.gz",
+    *,
+    dtype=np.float32,
+) -> dict[str, np.ndarray]:
+
+    if not extension.startswith("."):
+        extension = f".{extension}"
+
+    relative_file = Path(
+        f"{relative_path}{extension}"
+    )
+
+    subject_maps = {}
+
+    for base_path in map(Path, base_paths):
+        file_path = base_path / relative_file
+
+        if not file_path.is_file():
+            raise FileNotFoundError(
+                f"Subject map not found:\n  {file_path}"
+            )
+
+        subject_maps[str(base_path)] = np.asarray(
+            nib.load(str(file_path)).get_fdata(),
+            dtype=dtype,
+        )
+
+    return subject_maps

@@ -660,27 +660,13 @@ def calibrate_metabolite_ratio_from_r_maps(
     show: bool = True,
 ) -> MetaboliteRatioCalibrationResult:
     """
-    Calibrate the positive r_i distribution of one metabolite from
-    previously calculated ``r_calibration`` results.
+    Calibrate the positive r_i distribution of one metabolite.
 
-    No coefficient maps, basis sets, configuration files, or other
-    resources are loaded.
+    Subjects without the requested metabolite map are skipped.
+    Different spatial map shapes are supported.
 
-    Expected input structure:
-
-        r_calibration[subject_id] = {
-            "r_maps": ...,
-            "coefficients": ...,
-            "brain_mask": ...,
-            "basis_names": ...,
-            "matched_basis_names": ...,
-        }
-
-    The statistical model is:
-
-        0.5 * ZeroTruncatedNormal
-        +
-        0.5 * LogNormal
+    Statistics are calculated jointly from all positive finite
+    voxels of all subjects for which the map is available.
     """
 
     def name_key(name: str) -> str:
@@ -697,7 +683,7 @@ def calibrate_metabolite_ratio_from_r_maps(
         )
 
     # ---------------------------------------------------------
-    # Validate general input
+    # Validate input
     # ---------------------------------------------------------
     if not isinstance(r_calibration, Mapping) or not r_calibration:
         raise ValueError(
@@ -718,8 +704,8 @@ def calibrate_metabolite_ratio_from_r_maps(
         or truncated_normal_sigma_factor <= 0
     ):
         raise ValueError(
-            "truncated_normal_sigma_factor must be finite and "
-            "greater than zero."
+            "truncated_normal_sigma_factor must be finite "
+            "and greater than zero."
         )
 
     lognormal_sigma_factor = float(
@@ -731,8 +717,8 @@ def calibrate_metabolite_ratio_from_r_maps(
         or lognormal_sigma_factor <= 0
     ):
         raise ValueError(
-            "lognormal_sigma_factor must be finite and greater "
-            "than zero."
+            "lognormal_sigma_factor must be finite "
+            "and greater than zero."
         )
 
     # ---------------------------------------------------------
@@ -762,7 +748,9 @@ def calibrate_metabolite_ratio_from_r_maps(
         if unknown_subject_ids:
             raise KeyError(
                 "Unknown subject IDs:\n  "
-                + "\n  ".join(unknown_subject_ids)
+                + "\n  ".join(
+                    unknown_subject_ids
+                )
             )
 
     target_key = name_key(
@@ -771,13 +759,15 @@ def calibrate_metabolite_ratio_from_r_maps(
 
     coefficient_maps_by_subject = []
     ratio_maps_by_subject = []
+    pooled_values_by_subject = []
 
-    spatial_shape = None
+    used_subject_ids = []
+    skipped_subject_ids = []
+
     canonical_basis_name = None
-    missing_map_subjects = []
 
     # ---------------------------------------------------------
-    # Extract already calculated r_i maps
+    # Extract available subject maps
     # ---------------------------------------------------------
     for subject_id in selected_subject_ids:
         subject = r_calibration[
@@ -792,13 +782,15 @@ def calibrate_metabolite_ratio_from_r_maps(
         }
 
         missing_keys = sorted(
-            required_keys.difference(subject)
+            required_keys.difference(
+                subject
+            )
         )
 
         if missing_keys:
             raise KeyError(
-                f"{subject_id}: missing entries in r_calibration: "
-                f"{missing_keys}"
+                f"{subject_id}: missing entries in "
+                f"r_calibration: {missing_keys}"
             )
 
         basis_names = list(
@@ -807,14 +799,19 @@ def calibrate_metabolite_ratio_from_r_maps(
 
         matching_indices = [
             index
-            for index, basis_name in enumerate(basis_names)
-            if name_key(basis_name) == target_key
+            for index, basis_name in enumerate(
+                basis_names
+            )
+            if name_key(
+                basis_name
+            ) == target_key
         ]
 
         if not matching_indices:
             raise ValueError(
-                f"{subject_id}: metabolite {metabolite_name!r} "
-                "was not found in basis_names."
+                f"{subject_id}: metabolite "
+                f"{metabolite_name!r} was not found "
+                "in basis_names."
             )
 
         if len(matching_indices) > 1:
@@ -829,14 +826,20 @@ def calibrate_metabolite_ratio_from_r_maps(
                 f"{matching_names}"
             )
 
-        basis_index = matching_indices[0]
-        basis_name = basis_names[basis_index]
+        basis_index = matching_indices[
+            0
+        ]
+
+        basis_name = basis_names[
+            basis_index
+        ]
 
         if canonical_basis_name is None:
             canonical_basis_name = basis_name
 
-        # Check that this basis component really had a loaded map.
-        # Otherwise its coefficients were only filled with zeros.
+        # -----------------------------------------------------
+        # Skip subject if no coefficient map was loaded
+        # -----------------------------------------------------
         matched_basis_names = subject.get(
             "matched_basis_names"
         )
@@ -848,9 +851,10 @@ def calibrate_metabolite_ratio_from_r_maps(
             }
 
             if target_key not in matched_keys:
-                missing_map_subjects.append(
+                skipped_subject_ids.append(
                     subject_id
                 )
+                continue
 
         r_maps = np.asarray(
             subject["r_maps"],
@@ -875,7 +879,8 @@ def calibrate_metabolite_ratio_from_r_maps(
         if r_maps.shape != expected_shape:
             raise ValueError(
                 f"{subject_id}: r_maps has shape "
-                f"{r_maps.shape}, expected {expected_shape}."
+                f"{r_maps.shape}, expected "
+                f"{expected_shape}."
             )
 
         if coefficients.shape != expected_shape:
@@ -885,32 +890,31 @@ def calibrate_metabolite_ratio_from_r_maps(
                 f"{expected_shape}."
             )
 
-        if spatial_shape is None:
-            spatial_shape = brain_mask.shape
-
-        elif brain_mask.shape != spatial_shape:
-            raise ValueError(
-                "All selected subjects must have the same "
-                "spatial shape.\n"
-                f"  first shape:  {spatial_shape}\n"
-                f"  {subject_id}: {brain_mask.shape}"
-            )
-
         ratio_map = r_maps[
             ...,
             basis_index,
         ].copy()
 
-        # This should already be true, but reapply the stored mask
-        # explicitly for safety.
-        ratio_map[
-            ~brain_mask
-        ] = np.nan
-
         coefficient_map = coefficients[
             ...,
             basis_index,
         ].copy()
+
+        ratio_map[
+            ~brain_mask
+        ] = np.nan
+
+        coefficient_map[
+            ~brain_mask
+        ] = np.nan
+
+        valid_values = ratio_map[
+            np.isfinite(ratio_map)
+            & (ratio_map > 0)
+        ].astype(
+            np.float64,
+            copy=False,
+        )
 
         coefficient_maps_by_subject.append(
             coefficient_map
@@ -920,41 +924,68 @@ def calibrate_metabolite_ratio_from_r_maps(
             ratio_map
         )
 
-    if missing_map_subjects:
-        raise ValueError(
-            f"The map for {canonical_basis_name!r} was not loaded "
-            "and matched for these subjects:\n  "
-            + "\n  ".join(missing_map_subjects)
+        if valid_values.size > 0:
+            pooled_values_by_subject.append(
+                valid_values
+            )
+
+        used_subject_ids.append(
+            subject_id
         )
 
-    # Shape:
-    # (n_subjects, x, y, z)
-    coefficient_maps = np.stack(
-        coefficient_maps_by_subject,
-        axis=0,
-    )
-
-    ratio_maps = np.stack(
-        ratio_maps_by_subject,
-        axis=0,
-    )
-
     # ---------------------------------------------------------
-    # Pool positive finite r_i values
+    # Validate available data
     # ---------------------------------------------------------
-    pooled_values = ratio_maps[
-        np.isfinite(ratio_maps)
-        & (ratio_maps > 0)
-    ].astype(
-        np.float64,
-        copy=False,
-    )
+    if not used_subject_ids:
+        raise ValueError(
+            f"The map for {metabolite_name!r} "
+            "was not loaded and matched for any "
+            "selected subject."
+        )
 
-    if pooled_values.size == 0:
+    if not pooled_values_by_subject:
         raise ValueError(
             f"No valid positive ratios were found for "
             f"{canonical_basis_name!r}."
         )
+
+    pooled_values = np.concatenate(
+        pooled_values_by_subject,
+        axis=0,
+    )
+
+    # Different spatial shapes cannot be stacked into a regular
+    # numeric array. Keep one map object per subject instead.
+    coefficient_maps = np.empty(
+        len(coefficient_maps_by_subject),
+        dtype=object,
+    )
+
+    coefficient_maps[:] = (
+        coefficient_maps_by_subject
+    )
+
+    ratio_maps = np.empty(
+        len(ratio_maps_by_subject),
+        dtype=object,
+    )
+
+    ratio_maps[:] = ratio_maps_by_subject
+
+    # ---------------------------------------------------------
+    # Report skipped subjects
+    # ---------------------------------------------------------
+    if skipped_subject_ids:
+        print(
+            f"\n{canonical_basis_name}: skipped "
+            f"{len(skipped_subject_ids)} subject(s) "
+            "without a matched map:"
+        )
+
+        for subject_id in skipped_subject_ids:
+            print(
+                f"  {subject_id}"
+            )
 
     # ---------------------------------------------------------
     # Labels
@@ -971,7 +1002,7 @@ def calibrate_metabolite_ratio_from_r_maps(
         )
 
     # ---------------------------------------------------------
-    # Estimate and plot distributions
+    # Estimate and plot distribution
     # ---------------------------------------------------------
     statistics = compare_positive_models(
         pooled_values,
@@ -1004,7 +1035,7 @@ def calibrate_metabolite_ratio_from_r_maps(
     )
 
     # ---------------------------------------------------------
-    # Construct same result object as old function
+    # Construct result
     # ---------------------------------------------------------
     result = MetaboliteRatioCalibrationResult(
         coefficient_maps=coefficient_maps,
@@ -1060,7 +1091,7 @@ def calibrate_metabolite_ratio_from_r_maps(
     )
 
     # ---------------------------------------------------------
-    # Same parameter output as old function
+    # Parameter output
     # ---------------------------------------------------------
     print(
         f"\nFinal {canonical_basis_name} "
@@ -1123,12 +1154,455 @@ def calibrate_metabolite_ratio_from_r_maps(
         f"{result.lognormal_weight:.6f}"
     )
     print(
-        f"    subjects              = "
-        f"{len(selected_subject_ids)}"
+        f"    subjects used         = "
+        f"{len(used_subject_ids)}"
+    )
+    print(
+        f"    subjects skipped      = "
+        f"{len(skipped_subject_ids)}"
     )
     print(
         f"    voxels                = "
         f"{result.pooled_values.size}"
     )
 
+    print(
+        "    subject shapes:"
+    )
+
+    for subject_id, ratio_map in zip(
+        used_subject_ids,
+        ratio_maps_by_subject,
+    ):
+        print(
+            f"      {subject_id}: "
+            f"{ratio_map.shape}"
+        )
+
     return result
+
+from pathlib import Path
+import re
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def plot_fwhm_vs_metabolite_slices(
+    calibration_maps,
+    *,
+    metabolite_name="NAA",
+    slices_per_figure=6,
+    slice_axis=2,
+    percentile_range=(1.0, 99.0),
+    save_dir=None,
+    dpi=200,
+    show=True,
+):
+    """
+    Plot all slices of one metabolite amplitude map next to the
+    corresponding FWHM map for every subject.
+
+    For each slice:
+
+        left:  metabolite amplitude map
+        right: FWHM map
+
+    Parameters
+    ----------
+    calibration_maps:
+        Output of ``load_calibration_maps``.
+
+    metabolite_name:
+        Metabolite to compare with FWHM, for example ``"NAA"``.
+
+    slices_per_figure:
+        Number of slices shown in one figure.
+
+    slice_axis:
+        Spatial axis along which slices are extracted.
+        For maps with shape (X, Y, Z), use 2.
+
+    percentile_range:
+        Robust lower and upper percentiles used for the color scales.
+
+    save_dir:
+        Optional directory for saving PNG figures.
+
+    Returns
+    -------
+    figures:
+        Dictionary mapping each subject ID to a list of generated figures.
+    """
+
+    def name_key(name):
+        name = re.sub(
+            r"^\d+[_-]+",
+            "",
+            str(name),
+        )
+
+        return re.sub(
+            r"[^a-z0-9]",
+            "",
+            name.lower(),
+        )
+
+    def robust_limits(values, mask):
+        valid_values = np.asarray(values)[
+            mask
+            & np.isfinite(values)
+        ]
+
+        if valid_values.size == 0:
+            return 0.0, 1.0
+
+        lower, upper = np.percentile(
+            valid_values,
+            percentile_range,
+        )
+
+        lower = float(lower)
+        upper = float(upper)
+
+        if not np.isfinite(lower):
+            lower = 0.0
+
+        if (
+            not np.isfinite(upper)
+            or upper <= lower
+        ):
+            upper = lower + 1.0
+
+        return lower, upper
+
+    if not calibration_maps:
+        raise ValueError(
+            "calibration_maps must not be empty."
+        )
+
+    if slices_per_figure <= 0:
+        raise ValueError(
+            "slices_per_figure must be greater than zero."
+        )
+
+    if save_dir is not None:
+        save_dir = Path(
+            save_dir
+        )
+
+        save_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+    target_key = name_key(
+        metabolite_name
+    )
+
+    figures = {}
+
+    for subject_id, subject_data in calibration_maps.items():
+
+        metabolite_maps = subject_data[
+            "metabolites"
+        ]
+
+        matching_names = [
+            name
+            for name in metabolite_maps
+            if name_key(name) == target_key
+        ]
+
+        if not matching_names:
+            available_names = ", ".join(
+                metabolite_maps.keys()
+            )
+
+            print(
+                f"Skipping {subject_id}: "
+                f"{metabolite_name!r} not found.\n"
+                f"  Available: {available_names}"
+            )
+
+            continue
+
+        if len(matching_names) > 1:
+            raise ValueError(
+                f"{subject_id}: multiple maps match "
+                f"{metabolite_name!r}: {matching_names}"
+            )
+
+        matched_name = matching_names[
+            0
+        ]
+
+        metabolite_map = np.asarray(
+            metabolite_maps[
+                matched_name
+            ],
+            dtype=np.float32,
+        )
+
+        fwhm_map = np.asarray(
+            subject_data[
+                "fwhm"
+            ],
+            dtype=np.float32,
+        )
+
+        if metabolite_map.shape != fwhm_map.shape:
+            raise ValueError(
+                f"{subject_id}: shape mismatch:\n"
+                f"  {matched_name}: {metabolite_map.shape}\n"
+                f"  FWHM:       {fwhm_map.shape}"
+            )
+
+        if slice_axis not in {
+            0,
+            1,
+            2,
+        }:
+            raise ValueError(
+                "slice_axis must be 0, 1, or 2."
+            )
+
+        n_slices = metabolite_map.shape[
+            slice_axis
+        ]
+
+        # Mask background voxels. This is derived from the available
+        # LCModel maps rather than from an external anatomical mask.
+        valid_mask = (
+            np.isfinite(
+                metabolite_map
+            )
+            & np.isfinite(
+                fwhm_map
+            )
+            & (
+                (
+                    metabolite_map != 0
+                )
+                | (
+                    fwhm_map != 0
+                )
+            )
+        )
+
+        metabolite_vmin, metabolite_vmax = robust_limits(
+            metabolite_map,
+            valid_mask,
+        )
+
+        fwhm_vmin, fwhm_vmax = robust_limits(
+            fwhm_map,
+            valid_mask,
+        )
+
+        subject_figures = []
+
+        for first_slice in range(
+            0,
+            n_slices,
+            slices_per_figure,
+        ):
+            last_slice = min(
+                first_slice + slices_per_figure,
+                n_slices,
+            )
+
+            slice_indices = list(
+                range(
+                    first_slice,
+                    last_slice,
+                )
+            )
+
+            n_rows = len(
+                slice_indices
+            )
+
+            fig, axes = plt.subplots(
+                nrows=n_rows,
+                ncols=2,
+                figsize=(
+                    9,
+                    3.5 * n_rows,
+                ),
+                squeeze=False,
+            )
+
+            metabolite_image = None
+            fwhm_image = None
+
+            for row, slice_index in enumerate(
+                slice_indices
+            ):
+                metabolite_slice = np.take(
+                    metabolite_map,
+                    slice_index,
+                    axis=slice_axis,
+                )
+
+                fwhm_slice = np.take(
+                    fwhm_map,
+                    slice_index,
+                    axis=slice_axis,
+                )
+
+                mask_slice = np.take(
+                    valid_mask,
+                    slice_index,
+                    axis=slice_axis,
+                )
+
+                metabolite_slice = np.where(
+                    mask_slice,
+                    metabolite_slice,
+                    np.nan,
+                )
+
+                fwhm_slice = np.where(
+                    mask_slice,
+                    fwhm_slice,
+                    np.nan,
+                )
+
+                # Transpose so array axis 0 is displayed horizontally,
+                # analogous to many MRSI map visualizations.
+                metabolite_slice = metabolite_slice.T
+                fwhm_slice = fwhm_slice.T
+
+                metabolite_image = axes[
+                    row,
+                    0,
+                ].imshow(
+                    metabolite_slice,
+                    origin="lower",
+                    cmap="viridis",
+                    vmin=metabolite_vmin,
+                    vmax=metabolite_vmax,
+                    interpolation="nearest",
+                )
+
+                fwhm_image = axes[
+                    row,
+                    1,
+                ].imshow(
+                    fwhm_slice,
+                    origin="lower",
+                    cmap="magma",
+                    vmin=fwhm_vmin,
+                    vmax=fwhm_vmax,
+                    interpolation="nearest",
+                )
+
+                axes[
+                    row,
+                    0,
+                ].set_title(
+                    f"{matched_name} amplitude — slice {slice_index}"
+                )
+
+                axes[
+                    row,
+                    1,
+                ].set_title(
+                    f"FWHM — slice {slice_index}"
+                )
+
+                axes[
+                    row,
+                    0,
+                ].set_xticks([])
+
+                axes[
+                    row,
+                    0,
+                ].set_yticks([])
+
+                axes[
+                    row,
+                    1,
+                ].set_xticks([])
+
+                axes[
+                    row,
+                    1,
+                ].set_yticks([])
+
+            fig.suptitle(
+                (
+                    f"{subject_id}\n"
+                    f"{matched_name} amplitude vs. FWHM"
+                ),
+                fontsize=14,
+            )
+
+            fig.tight_layout(
+                rect=(
+                    0,
+                    0.04,
+                    1,
+                    0.97,
+                )
+            )
+
+            if metabolite_image is not None:
+                fig.colorbar(
+                    metabolite_image,
+                    ax=axes[:, 0],
+                    fraction=0.025,
+                    pad=0.02,
+                    label=f"{matched_name} amplitude",
+                )
+
+            if fwhm_image is not None:
+                fig.colorbar(
+                    fwhm_image,
+                    ax=axes[:, 1],
+                    fraction=0.025,
+                    pad=0.02,
+                    label="FWHM",
+                )
+
+            if save_dir is not None:
+                safe_subject_id = re.sub(
+                    r"[^A-Za-z0-9_.-]+",
+                    "_",
+                    subject_id,
+                )
+
+                save_path = (
+                    save_dir
+                    / (
+                        f"{safe_subject_id}_"
+                        f"{matched_name}_FWHM_"
+                        f"slices_{first_slice:02d}-"
+                        f"{last_slice - 1:02d}.png"
+                    )
+                )
+
+                fig.savefig(
+                    save_path,
+                    dpi=dpi,
+                    bbox_inches="tight",
+                )
+
+            if show:
+                plt.show()
+            else:
+                plt.close(
+                    fig
+                )
+
+            subject_figures.append(
+                fig
+            )
+
+        figures[
+            subject_id
+        ] = subject_figures
+
+    return figures
