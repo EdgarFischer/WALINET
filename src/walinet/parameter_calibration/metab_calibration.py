@@ -630,3 +630,505 @@ def calibrate_metabolite_ratio_from_map(
     )
 
     return result
+
+
+from pathlib import Path
+from collections.abc import Mapping, Sequence
+import re
+
+import numpy as np
+
+from walinet.parameter_calibration.metab_calibration import (
+    MetaboliteRatioCalibrationResult,
+    compare_positive_models,
+)
+
+
+def calibrate_metabolite_ratio_from_r_maps(
+    *,
+    r_calibration: Mapping,
+    metabolite_name: str,
+    subject_ids: Sequence[str] | None = None,
+    bins: int | str = 50,
+    plot_percentile: float = 99.5,
+    truncated_normal_sigma_factor: float = 1.0,
+    lognormal_sigma_factor: float = 1.0,
+    title: str | None = None,
+    xlabel: str | None = None,
+    save_path: str | Path | None = None,
+    dpi: int = 300,
+    show: bool = True,
+) -> MetaboliteRatioCalibrationResult:
+    """
+    Calibrate the positive r_i distribution of one metabolite from
+    previously calculated ``r_calibration`` results.
+
+    No coefficient maps, basis sets, configuration files, or other
+    resources are loaded.
+
+    Expected input structure:
+
+        r_calibration[subject_id] = {
+            "r_maps": ...,
+            "coefficients": ...,
+            "brain_mask": ...,
+            "basis_names": ...,
+            "matched_basis_names": ...,
+        }
+
+    The statistical model is:
+
+        0.5 * ZeroTruncatedNormal
+        +
+        0.5 * LogNormal
+    """
+
+    def name_key(name: str) -> str:
+        name = re.sub(
+            r"^\d+[_-]+",
+            "",
+            str(name),
+        )
+
+        return re.sub(
+            r"[^a-z0-9]",
+            "",
+            name.lower(),
+        )
+
+    # ---------------------------------------------------------
+    # Validate general input
+    # ---------------------------------------------------------
+    if not isinstance(r_calibration, Mapping) or not r_calibration:
+        raise ValueError(
+            "r_calibration must be a non-empty mapping."
+        )
+
+    if not metabolite_name.strip():
+        raise ValueError(
+            "metabolite_name must not be empty."
+        )
+
+    truncated_normal_sigma_factor = float(
+        truncated_normal_sigma_factor
+    )
+
+    if (
+        not np.isfinite(truncated_normal_sigma_factor)
+        or truncated_normal_sigma_factor <= 0
+    ):
+        raise ValueError(
+            "truncated_normal_sigma_factor must be finite and "
+            "greater than zero."
+        )
+
+    lognormal_sigma_factor = float(
+        lognormal_sigma_factor
+    )
+
+    if (
+        not np.isfinite(lognormal_sigma_factor)
+        or lognormal_sigma_factor <= 0
+    ):
+        raise ValueError(
+            "lognormal_sigma_factor must be finite and greater "
+            "than zero."
+        )
+
+    # ---------------------------------------------------------
+    # Select subjects
+    # ---------------------------------------------------------
+    if subject_ids is None:
+        selected_subject_ids = list(
+            r_calibration.keys()
+        )
+
+    else:
+        selected_subject_ids = list(
+            subject_ids
+        )
+
+        if not selected_subject_ids:
+            raise ValueError(
+                "subject_ids must not be empty."
+            )
+
+        unknown_subject_ids = [
+            subject_id
+            for subject_id in selected_subject_ids
+            if subject_id not in r_calibration
+        ]
+
+        if unknown_subject_ids:
+            raise KeyError(
+                "Unknown subject IDs:\n  "
+                + "\n  ".join(unknown_subject_ids)
+            )
+
+    target_key = name_key(
+        metabolite_name
+    )
+
+    coefficient_maps_by_subject = []
+    ratio_maps_by_subject = []
+
+    spatial_shape = None
+    canonical_basis_name = None
+    missing_map_subjects = []
+
+    # ---------------------------------------------------------
+    # Extract already calculated r_i maps
+    # ---------------------------------------------------------
+    for subject_id in selected_subject_ids:
+        subject = r_calibration[
+            subject_id
+        ]
+
+        required_keys = {
+            "r_maps",
+            "coefficients",
+            "brain_mask",
+            "basis_names",
+        }
+
+        missing_keys = sorted(
+            required_keys.difference(subject)
+        )
+
+        if missing_keys:
+            raise KeyError(
+                f"{subject_id}: missing entries in r_calibration: "
+                f"{missing_keys}"
+            )
+
+        basis_names = list(
+            subject["basis_names"]
+        )
+
+        matching_indices = [
+            index
+            for index, basis_name in enumerate(basis_names)
+            if name_key(basis_name) == target_key
+        ]
+
+        if not matching_indices:
+            raise ValueError(
+                f"{subject_id}: metabolite {metabolite_name!r} "
+                "was not found in basis_names."
+            )
+
+        if len(matching_indices) > 1:
+            matching_names = [
+                basis_names[index]
+                for index in matching_indices
+            ]
+
+            raise ValueError(
+                f"{subject_id}: metabolite name "
+                f"{metabolite_name!r} is ambiguous: "
+                f"{matching_names}"
+            )
+
+        basis_index = matching_indices[0]
+        basis_name = basis_names[basis_index]
+
+        if canonical_basis_name is None:
+            canonical_basis_name = basis_name
+
+        # Check that this basis component really had a loaded map.
+        # Otherwise its coefficients were only filled with zeros.
+        matched_basis_names = subject.get(
+            "matched_basis_names"
+        )
+
+        if matched_basis_names is not None:
+            matched_keys = {
+                name_key(name)
+                for name in matched_basis_names
+            }
+
+            if target_key not in matched_keys:
+                missing_map_subjects.append(
+                    subject_id
+                )
+
+        r_maps = np.asarray(
+            subject["r_maps"],
+            dtype=np.float32,
+        )
+
+        coefficients = np.asarray(
+            subject["coefficients"],
+            dtype=np.float32,
+        )
+
+        brain_mask = np.asarray(
+            subject["brain_mask"],
+            dtype=bool,
+        )
+
+        expected_shape = (
+            *brain_mask.shape,
+            len(basis_names),
+        )
+
+        if r_maps.shape != expected_shape:
+            raise ValueError(
+                f"{subject_id}: r_maps has shape "
+                f"{r_maps.shape}, expected {expected_shape}."
+            )
+
+        if coefficients.shape != expected_shape:
+            raise ValueError(
+                f"{subject_id}: coefficients has shape "
+                f"{coefficients.shape}, expected "
+                f"{expected_shape}."
+            )
+
+        if spatial_shape is None:
+            spatial_shape = brain_mask.shape
+
+        elif brain_mask.shape != spatial_shape:
+            raise ValueError(
+                "All selected subjects must have the same "
+                "spatial shape.\n"
+                f"  first shape:  {spatial_shape}\n"
+                f"  {subject_id}: {brain_mask.shape}"
+            )
+
+        ratio_map = r_maps[
+            ...,
+            basis_index,
+        ].copy()
+
+        # This should already be true, but reapply the stored mask
+        # explicitly for safety.
+        ratio_map[
+            ~brain_mask
+        ] = np.nan
+
+        coefficient_map = coefficients[
+            ...,
+            basis_index,
+        ].copy()
+
+        coefficient_maps_by_subject.append(
+            coefficient_map
+        )
+
+        ratio_maps_by_subject.append(
+            ratio_map
+        )
+
+    if missing_map_subjects:
+        raise ValueError(
+            f"The map for {canonical_basis_name!r} was not loaded "
+            "and matched for these subjects:\n  "
+            + "\n  ".join(missing_map_subjects)
+        )
+
+    # Shape:
+    # (n_subjects, x, y, z)
+    coefficient_maps = np.stack(
+        coefficient_maps_by_subject,
+        axis=0,
+    )
+
+    ratio_maps = np.stack(
+        ratio_maps_by_subject,
+        axis=0,
+    )
+
+    # ---------------------------------------------------------
+    # Pool positive finite r_i values
+    # ---------------------------------------------------------
+    pooled_values = ratio_maps[
+        np.isfinite(ratio_maps)
+        & (ratio_maps > 0)
+    ].astype(
+        np.float64,
+        copy=False,
+    )
+
+    if pooled_values.size == 0:
+        raise ValueError(
+            f"No valid positive ratios were found for "
+            f"{canonical_basis_name!r}."
+        )
+
+    # ---------------------------------------------------------
+    # Labels
+    # ---------------------------------------------------------
+    if title is None:
+        title = (
+            f"{canonical_basis_name} coefficient ratio"
+        )
+
+    if xlabel is None:
+        xlabel = (
+            f"{canonical_basis_name} coefficient / "
+            "max|Metabolites|"
+        )
+
+    # ---------------------------------------------------------
+    # Estimate and plot distributions
+    # ---------------------------------------------------------
+    statistics = compare_positive_models(
+        pooled_values,
+        title=title,
+        xlabel=xlabel,
+        bins=bins,
+        plot_percentile=plot_percentile,
+        truncated_normal_sigma_factor=(
+            truncated_normal_sigma_factor
+        ),
+        lognormal_sigma_factor=(
+            lognormal_sigma_factor
+        ),
+        save_path=save_path,
+        dpi=dpi,
+        show=show,
+    )
+
+    normal_sigma_factor = float(
+        statistics["normal_sigma_factor"]
+    )
+
+    normal_sigma = float(
+        statistics["normal_sigma"]
+    )
+
+    robust_normal_sigma = (
+        normal_sigma
+        / normal_sigma_factor
+    )
+
+    # ---------------------------------------------------------
+    # Construct same result object as old function
+    # ---------------------------------------------------------
+    result = MetaboliteRatioCalibrationResult(
+        coefficient_maps=coefficient_maps,
+        ratio_maps=ratio_maps,
+        pooled_values=pooled_values,
+        median=float(
+            statistics["median"]
+        ),
+        iqr=float(
+            statistics["iqr"]
+        ),
+        normal_mu=float(
+            statistics["normal_mu"]
+        ),
+        robust_normal_sigma=float(
+            robust_normal_sigma
+        ),
+        truncated_normal_sigma_factor=(
+            normal_sigma_factor
+        ),
+        normal_sigma=normal_sigma,
+        log_mu=float(
+            statistics["log_mu"]
+        ),
+        robust_log_sigma=float(
+            statistics["robust_log_sigma"]
+        ),
+        lognormal_sigma_factor=float(
+            statistics["log_sigma_factor"]
+        ),
+        log_sigma=float(
+            statistics["log_sigma"]
+        ),
+        lognormal_median=float(
+            np.exp(
+                statistics["log_mu"]
+            )
+        ),
+        normal_weight=float(
+            statistics["normal_weight"]
+        ),
+        lognormal_weight=float(
+            statistics["lognormal_weight"]
+        ),
+        plot_xmin=float(
+            statistics["plot_xmin"]
+        ),
+        plot_xmax=float(
+            statistics["plot_xmax"]
+        ),
+        figure=statistics["figure"],
+        axes=statistics["axes"],
+    )
+
+    # ---------------------------------------------------------
+    # Same parameter output as old function
+    # ---------------------------------------------------------
+    print(
+        f"\nFinal {canonical_basis_name} "
+        "positive-mixture parameters:"
+    )
+
+    print(
+        "  Zero-truncated normal component:"
+    )
+    print(
+        f"    mu                    = "
+        f"{result.normal_mu:.6f}"
+    )
+    print(
+        f"    robust_sigma          = "
+        f"{result.robust_normal_sigma:.6f}"
+    )
+    print(
+        f"    sigma_factor          = "
+        f"{result.truncated_normal_sigma_factor:.6f}"
+    )
+    print(
+        f"    final_sigma           = "
+        f"{result.normal_sigma:.6f}"
+    )
+
+    print(
+        "  Lognormal component:"
+    )
+    print(
+        f"    log_mu                = "
+        f"{result.log_mu:.6f}"
+    )
+    print(
+        f"    robust_log_sigma      = "
+        f"{result.robust_log_sigma:.6f}"
+    )
+    print(
+        f"    sigma_factor          = "
+        f"{result.lognormal_sigma_factor:.6f}"
+    )
+    print(
+        f"    final_log_sigma       = "
+        f"{result.log_sigma:.6f}"
+    )
+    print(
+        f"    median                = "
+        f"{result.lognormal_median:.6f}"
+    )
+
+    print(
+        "  Mixture:"
+    )
+    print(
+        f"    normal_weight         = "
+        f"{result.normal_weight:.6f}"
+    )
+    print(
+        f"    lognormal_weight      = "
+        f"{result.lognormal_weight:.6f}"
+    )
+    print(
+        f"    subjects              = "
+        f"{len(selected_subject_ids)}"
+    )
+    print(
+        f"    voxels                = "
+        f"{result.pooled_values.size}"
+    )
+
+    return result

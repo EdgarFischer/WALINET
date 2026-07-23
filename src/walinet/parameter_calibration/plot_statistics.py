@@ -783,6 +783,8 @@ def compare_symmetric_models(
     xlabel: str = "Value",
     ylabel: str = "Probability density",
     bins: int | str = 80,
+    normal_sigma_factor: float = 1.0,
+    lognormal_sigma_factor: float = 1.0,
     plot_percentile: float = 99.5,
     x_limits: tuple[float, float] | None = None,
     save_path: str | Path | None = None,
@@ -810,15 +812,34 @@ def compare_symmetric_models(
         0.25 * positive lognormal tail
         0.25 * negative lognormal tail
 
-    Calibration is robust and data-driven:
+    Robust calibration:
 
-        normal_sigma = IQR(values) / 1.349
+        robust_normal_sigma = IQR(values) / 1.349
+        normal_sigma = normal_sigma_factor * robust_normal_sigma
+
         log_mu = median(log(abs(values - center)))
-        log_sigma = IQR(log(abs(values - center))) / 1.349
+
+        robust_log_sigma = (
+            IQR(log(abs(values - center))) / 1.349
+        )
+
+        log_sigma = (
+            lognormal_sigma_factor * robust_log_sigma
+        )
     """
     values = _as_finite_1d(
         values,
         positive_only=False,
+    )
+
+    normal_sigma_factor = _validate_positive_factor(
+        normal_sigma_factor,
+        name="normal_sigma_factor",
+    )
+
+    lognormal_sigma_factor = _validate_positive_factor(
+        lognormal_sigma_factor,
+        name="lognormal_sigma_factor",
     )
 
     plot_percentile = _validate_plot_percentile(
@@ -833,7 +854,7 @@ def compare_symmetric_models(
     q1, center, q3, iqr, normal_sigma = (
         _robust_linear_parameters(
             values,
-            sigma_factor=1.0,
+            sigma_factor=normal_sigma_factor,
         )
     )
 
@@ -861,7 +882,7 @@ def compare_symmetric_models(
         log_sigma,
     ) = _robust_lognormal_parameters(
         positive_deviations,
-        sigma_factor=1.0,
+        sigma_factor=lognormal_sigma_factor,
     )
 
     if x_limits is None:
@@ -880,6 +901,7 @@ def compare_symmetric_models(
             center
             + maximum_deviation
         )
+
     else:
         x_min, x_max = map(
             float,
@@ -913,9 +935,8 @@ def compare_symmetric_models(
         - center
     )
 
-    # This is one normalized symmetric tail density. The factor 0.5
-    # splits its probability equally between the positive and negative
-    # sides of the center.
+    # One normalized symmetric tail density. The factor 0.5
+    # distributes its probability equally across both sides.
     symmetric_lognormal_pdf = (
         0.5
         * lognorm.pdf(
@@ -1011,52 +1032,62 @@ def compare_symmetric_models(
 
     print("Linear scale:")
     print(
-        f"  q1                 = {q1:.6f}"
+        f"  q1                  = {q1:.6f}"
     )
     print(
-        f"  center / median    = {center:.6f}"
+        f"  center / median     = {center:.6f}"
     )
     print(
-        f"  q3                 = {q3:.6f}"
+        f"  q3                  = {q3:.6f}"
     )
     print(
-        f"  IQR                = {iqr:.6f}"
+        f"  IQR                 = {iqr:.6f}"
     )
 
     print("\nCentral normal component:")
     print(
-        f"  mu                 = {center:.6f}"
+        f"  mu                  = {center:.6f}"
     )
     print(
-        f"  sigma              = {normal_sigma:.6f}"
+        f"  final_sigma         = {normal_sigma:.6f}"
+    )
+    print(
+        f"  sigma_factor        = {normal_sigma_factor:.6f}"
     )
 
     print("\nSymmetric lognormal-tail component:")
     print(
-        f"  log_q1             = {log_q1:.6f}"
+        f"  log_q1              = {log_q1:.6f}"
     )
     print(
-        f"  log_mu             = {log_mu:.6f}"
+        f"  log_mu              = {log_mu:.6f}"
     )
     print(
-        f"  log_q3             = {log_q3:.6f}"
+        f"  log_q3              = {log_q3:.6f}"
     )
     print(
-        f"  log_sigma          = {log_sigma:.6f}"
+        f"  robust_log_sigma    = {robust_log_sigma:.6f}"
     )
     print(
-        f"  tail median        = {np.exp(log_mu):.6f}"
+        f"  final_log_sigma     = {log_sigma:.6f}"
+    )
+    print(
+        f"  sigma_factor        = {lognormal_sigma_factor:.6f}"
+    )
+    print(
+        f"  tail median         = {np.exp(log_mu):.6f}"
     )
 
     print("\nMixture:")
     print(
-        f"  normal_weight      = {NORMAL_COMPONENT_WEIGHT:.6f}"
+        f"  normal_weight       = "
+        f"{NORMAL_COMPONENT_WEIGHT:.6f}"
     )
     print(
-        "  positive_tail      = 0.250000"
+        "  positive_tail       = 0.250000"
     )
     print(
-        "  negative_tail      = 0.250000"
+        "  negative_tail       = 0.250000"
     )
 
     return {
@@ -1065,12 +1096,23 @@ def compare_symmetric_models(
         "iqr": float(iqr),
         "normal_mu": float(center),
         "normal_sigma": float(normal_sigma),
+        "normal_sigma_factor": float(
+            normal_sigma_factor
+        ),
         "log_mu": float(log_mu),
-        "robust_log_sigma": float(robust_log_sigma),
-        "log_sigma_factor": 1.0,
+        "robust_log_sigma": float(
+            robust_log_sigma
+        ),
+        "log_sigma_factor": float(
+            lognormal_sigma_factor
+        ),
         "log_sigma": float(log_sigma),
-        "normal_weight": float(NORMAL_COMPONENT_WEIGHT),
-        "lognormal_weight": float(LOGNORMAL_COMPONENT_WEIGHT),
+        "normal_weight": float(
+            NORMAL_COMPONENT_WEIGHT
+        ),
+        "lognormal_weight": float(
+            LOGNORMAL_COMPONENT_WEIGHT
+        ),
         "positive_tail_weight": 0.25,
         "negative_tail_weight": 0.25,
         "plot_xmin": float(x_min),

@@ -6,10 +6,7 @@ SRC_BASE="/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/lab/Process_
 DST_BASE="/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/public/hfish/walinet/data/3T/PRISMAFIT_Vienna"
 
 subjects=(
-    "Vol01_BS"
-    "Vol02_LH"
-    "Vol03_WB"
-    "Vol04_LP"
+    "Vol02_SM_RESCAN"
 )
 
 reconstructions=(

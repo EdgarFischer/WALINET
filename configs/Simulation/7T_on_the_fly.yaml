@@ -8,7 +8,7 @@ acquisition:
   n_timepoints: 840
 
   # Actually acquired FID samples before zero-filling.
-  min_acquired_n_timepoints: 558
+  min_acquired_n_timepoints: 420
   max_acquired_n_timepoints: 840
 
   # Larmor frequency of the acquisition.
@@ -49,11 +49,11 @@ metabolites:
       center_ppm: 0.0
 
       normal:
-        std_ppm: 0.0578
+        std_ppm: 0.116
 
       lognormal_tail:
         log_mu: -3.1
-        log_sigma: 1.23
+        log_sigma: 2.45
 
   # Spectral FWHM in ppm.
   #
@@ -70,11 +70,11 @@ metabolites:
 
       normal:
         mean_ppm: 0.056
-        std_ppm: 0.0452
+        std_ppm: 0.0904
 
       lognormal:
         log_mu: -2.88
-        log_sigma: 0.698
+        log_sigma: 1.4
 
       minimum_ppm: 0.0
 
@@ -98,11 +98,11 @@ metabolites:
       center_deg: -12.0
 
       normal:
-        std_deg: 25.2
+        std_deg: 50.4
 
       lognormal_tail:
         log_mu: 2.89
-        log_sigma: 1.05
+        log_sigma: 2.1
 
   # Linear phase slope over frequency.
   #
@@ -124,11 +124,11 @@ metabolites:
       center_deg_per_ppm: 1.0
 
       normal:
-        std_deg_per_ppm: 13.3
+        std_deg_per_ppm: 26.7
 
       lognormal_tail:
         log_mu: 2.2
-        log_sigma: 1.17
+        log_sigma: 2.34
 
 
 noise:
@@ -171,11 +171,11 @@ water:
 
       normal:
         mean: 32.4
-        std: 18.4
+        std: 36.8
 
       lognormal:
         log_mu: 3.48
-        log_sigma: 0.55
+        log_sigma: 1.1
 
       minimum: 0.0
 
@@ -195,11 +195,11 @@ lipids:
 
       normal:
         mean: 2.36
-        std: 3.32
+        std: 6.65
 
       lognormal:
         log_mu: 0.857
-        log_sigma: 1.1
+        log_sigma: 2.21
 
       minimum: 0.0
 

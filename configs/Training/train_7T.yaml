@@ -1,13 +1,13 @@
 run:
-  name: "7T_new_Wali_1"
+  name: "7T_new_Wali_2"
   seed: 42
-  gpu: 2
+  gpu: 3
 
 data:
   base_dir: "../../data/7T/B0corrected_wo_LipidMask"
 
   train_subjects: ['Vol3_Brisbane'] #, 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
-  val_subjects: ['Vol5'] #, 'Vol1_Brisbane', 'Vol1_London']
+  val_subjects: ['Vol5']  #, 'Vol1_Brisbane', 'Vol1_London']
 
   simulation_config: "../Simulation/7T_on_the_fly.yaml"
 
@@ -20,11 +20,11 @@ output:
   overwrite: false
 
 training:
-  batch_size: 3500
-  epochs: 20
+  batch_size: 4000
+  epochs: 200
 
   # Number of newly simulated training batches per epoch.
-  n_batches: 100
+  n_batches: 200
 
   # Print information for every individual batch.
   verbose: false
@@ -37,11 +37,11 @@ validation:
   batch_size: 3500
 
 optim:
-  lr: 0.00008
+  lr: 0.0008
 
 scheduler:
-  milestones: [150, 300, 500]
-  gamma: 0.25
+  milestones: [50, 100, 150]
+  gamma: 0.5
 
 model:
   architecture: "unet"  # "unet" or "ynet"

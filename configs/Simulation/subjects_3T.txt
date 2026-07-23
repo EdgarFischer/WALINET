@@ -1,26 +1,21 @@
-version: "water_lipid_v1"
-
-data:
-  base_dir: "../../data/3T"
-
   subjects:
     # ClimaX_Brisbane
-   # - "ClimaX_Brisbane/Vol4/Res36x36"
-   # - "ClimaX_Brisbane/Vol4/Res50x50"
-   # - "ClimaX_Brisbane/Vol5/Res36x36"
-   # - "ClimaX_Brisbane/Vol5/Res50x50"
-   # - "ClimaX_Brisbane/Vol6/Res36x36"
-   # - "ClimaX_Brisbane/Vol6/Res50x50"
-   # - "ClimaX_Brisbane/Vol7/Res36x36"
-   # - "ClimaX_Brisbane/Vol7/Res50x50"
-   # - "ClimaX_Brisbane/Vol8/Res36x36"
-   # - "ClimaX_Brisbane/Vol8/Res50x50"
+    - "ClimaX_Brisbane/Vol4/Res36x36"
+    - "ClimaX_Brisbane/Vol4/Res50x50"
+    - "ClimaX_Brisbane/Vol5/Res36x36"
+    - "ClimaX_Brisbane/Vol5/Res50x50"
+    - "ClimaX_Brisbane/Vol6/Res36x36"
+    - "ClimaX_Brisbane/Vol6/Res50x50"
+    - "ClimaX_Brisbane/Vol7/Res36x36"
+    - "ClimaX_Brisbane/Vol7/Res50x50"
+    - "ClimaX_Brisbane/Vol8/Res36x36"
+    - "ClimaX_Brisbane/Vol8/Res50x50"
 
     # PRISMAFIT_Vienna
-    #- "PRISMAFIT_Vienna/Vol01_BS/Res36x36"
-    #- "PRISMAFIT_Vienna/Vol01_BS/Res50x50"
-    #- "PRISMAFIT_Vienna/Vol01_BS/Res64x64x41"
-    #- "PRISMAFIT_Vienna/Vol02_LH/Res36x36"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res36x36"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res50x50"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res64x64x41"
+    - "PRISMAFIT_Vienna/Vol02_LH/Res36x36"
     - "PRISMAFIT_Vienna/Vol02_LH/Res50x50"
     - "PRISMAFIT_Vienna/Vol02_LH/Res64x64x41"
     - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res36x36"
@@ -72,33 +67,3 @@ data:
     - "VIDA_Vienna/Vol05_LH/Res36x36"
     - "VIDA_Vienna/Vol05_LH/Res50x50"
     - "VIDA_Vienna/Vol05_LH/Res64x64x41"
-
-  paths:
-    brain_mask: "masks/brain_mask.npy"
-    lipid_mask: "masks/lipid_mask.npy"
-    input_data: "OriginalData/data.npy"
-    output_dir: "TrainData"
-
-acquisition:
-  bandwidth_hz: 939.85
-  nmr_frequency_hz: 123231706.0
-
-water_extraction:
-  hsvd_components: 32
-
-  min_frequency_offset_ppm: -1.35
-  max_frequency_offset_ppm: 0.51
-
-  parallel_jobs: 20
-  slice_batch_size: 3
-
-resources:
-  simulation_resources_filename: "SimulationResources_{version}.h5"
-  overwrite: false
-
-lipid_projection:
-  enabled: true
-  n_timepoints: [100, 200]
-  target: 0.938
-  tol: 0.005
-  max_iter: 60

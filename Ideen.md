@@ -24,4 +24,6 @@ Für paper:
 
 * Tumor Verteilung und healthy separat, im training zufällig ziehen aus welcher verteilung die  metabos gezogen werden.
 
+* Achtung man muss zeigen das die marginalen veteilungen der simulierten spektren mit denen der in vivo übereinstimmt, das muss nicht das gleiche sein als vorher
+
 Bemerkung: Tumor basis 7T ist vollständig und kann ich so nehmen.

@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_DIR="/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/public/hfish/walinet/data/3T/VIDA_Vienna"
+BASE_DIR="/ceph/mri.meduniwien.ac.at/departments/radiology/mrsbrain/public/hfish/walinet/data/3T/PRISMAFIT_Vienna"
 
 subjects=(
-    #"Vol01_PW"
-    "Vol02_BS"
-    "Vol03_TE"
-    "Vol04_AA"
-    "Vol05_LH"
+    "Vol02_LH"
+    "Vol02_SM_RESCAN"
 )
 
 old_names=(

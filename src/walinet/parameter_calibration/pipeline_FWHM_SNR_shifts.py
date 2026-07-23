@@ -63,10 +63,12 @@ class ParameterCalibrationResult:
 
     normal_mu: float
     normal_sigma: float
+    normal_sigma_factor: float
 
     log_mu: float
     log_sigma: float
     robust_log_sigma: float
+    lognormal_sigma_factor: float
 
     center: float | None
 
@@ -123,6 +125,8 @@ def calibrate_parameter_from_maps(
     ylabel: str = "Probability density",
     title: str | None = None,
     bins: int | str = 50,
+    normal_sigma_factor: float = 1.0,
+    lognormal_sigma_factor: float = 1.0,
     plot_percentile: float = 99.5,
     x_limits: tuple[float, float] | None = None,
     save_path: str | Path | None = None,
@@ -145,10 +149,24 @@ def calibrate_parameter_from_maps(
         Calibration:
 
             normal_mu = median(values)
-            normal_sigma = IQR(values) / 1.349
+
+            robust_normal_sigma = IQR(values) / 1.349
+
+            normal_sigma = (
+                normal_sigma_factor
+                * robust_normal_sigma
+            )
 
             log_mu = median(log(values))
-            log_sigma = IQR(log(values)) / 1.349
+
+            robust_log_sigma = (
+                IQR(log(values)) / 1.349
+            )
+
+            log_sigma = (
+                lognormal_sigma_factor
+                * robust_log_sigma
+            )
 
     ``distribution="symmetric_mixture"``
         For signed parameters such as frequency shift and phase:
@@ -162,11 +180,26 @@ def calibrate_parameter_from_maps(
         Calibration:
 
             center = median(values)
-            normal_sigma = IQR(values) / 1.349
+
+            robust_normal_sigma = IQR(values) / 1.349
+
+            normal_sigma = (
+                normal_sigma_factor
+                * robust_normal_sigma
+            )
 
             deviations = abs(values - center)
+
             log_mu = median(log(deviations))
-            log_sigma = IQR(log(deviations)) / 1.349
+
+            robust_log_sigma = (
+                IQR(log(deviations)) / 1.349
+            )
+
+            log_sigma = (
+                lognormal_sigma_factor
+                * robust_log_sigma
+            )
 
     The mixture weights are fixed globally and are not fitted separately
     for individual parameters.
@@ -286,8 +319,8 @@ def calibrate_parameter_from_maps(
             xlabel=xlabel,
             ylabel=ylabel,
             bins=bins,
-            truncated_normal_sigma_factor=1.0,
-            lognormal_sigma_factor=1.0,
+            truncated_normal_sigma_factor=normal_sigma_factor,
+            lognormal_sigma_factor=lognormal_sigma_factor,
             plot_percentile=plot_percentile,
             x_limits=x_limits,
             save_path=save_path,
@@ -307,6 +340,8 @@ def calibrate_parameter_from_maps(
             xlabel=xlabel,
             ylabel=ylabel,
             bins=bins,
+            normal_sigma_factor=normal_sigma_factor,
+            lognormal_sigma_factor=lognormal_sigma_factor,
             plot_percentile=plot_percentile,
             x_limits=x_limits,
             save_path=save_path,
@@ -357,6 +392,9 @@ def calibrate_parameter_from_maps(
         normal_sigma=float(
             statistics["normal_sigma"]
         ),
+        normal_sigma_factor=float(
+            statistics["normal_sigma_factor"]
+        ),
         log_mu=float(
             statistics["log_mu"]
         ),
@@ -365,6 +403,9 @@ def calibrate_parameter_from_maps(
         ),
         robust_log_sigma=float(
             statistics["robust_log_sigma"]
+        ),
+        lognormal_sigma_factor=float(
+            statistics["log_sigma_factor"]
         ),
         center=center,
         normal_weight=float(

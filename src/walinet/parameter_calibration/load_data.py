@@ -468,3 +468,64 @@ def load_subject_reconstructed_water_fids(
     )
 
     return Water, brain_mask
+
+from pathlib import Path
+import re
+import nibabel as nib
+import numpy as np
+
+
+def _metab_key(filename, suffix):
+    name = filename.removesuffix(f"_amp_map{suffix}")
+    name = re.sub(r"^\d+[_-]+", "", name)
+    return re.sub(r"[^a-zA-Z0-9]", "", name)
+
+
+def load_calibration_maps(subject_dirs, suffix=".nii.gz"):
+    data = {}
+
+    for subject_dir in map(Path, subject_dirs):
+        subject_id = f"{subject_dir.parent.name}/{subject_dir.name}"
+        orig_dir = subject_dir / "maps" / "Orig"
+
+        metabolite_paths = sorted(
+            orig_dir.glob(f"*_amp_map{suffix}")
+        )
+
+        metabolites = {
+            _metab_key(path.name, suffix): nib.load(path).get_fdata(
+                dtype=np.float32
+            )
+            for path in metabolite_paths
+            if not _metab_key(path.name, suffix).lower().startswith("mm")
+            and "macromol" not in _metab_key(path.name, suffix).lower()
+        }
+
+        fwhm_path = (
+            subject_dir
+            / "maps"
+            / "Extra"
+            / f"FWHM_map{suffix}"
+        )
+
+        if not metabolites:
+            raise FileNotFoundError(
+                f"Keine Metabolitenkarten gefunden: {orig_dir}"
+            )
+
+        if not fwhm_path.exists():
+            raise FileNotFoundError(
+                f"FWHM-Map nicht gefunden: {fwhm_path}"
+            )
+
+        fwhm = nib.load(fwhm_path).get_fdata(
+            dtype=np.float32
+        )
+
+        data[subject_id] = {
+            "metabolites": metabolites,
+            "fwhm": fwhm,
+            "subject_dir": subject_dir,
+        }
+
+    return data

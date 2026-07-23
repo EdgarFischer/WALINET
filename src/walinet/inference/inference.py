@@ -40,24 +40,249 @@ def _ensure_repo_src_on_path():
             sys.path.insert(0, str(p.resolve()))
 
 
-def _load_model_and_params(exp, model_root="../models", architecture="auto"):
+def _canonicalize_model_params(params):
+    """
+    Convert parameter names from the different model-folder formats to
+    the names expected by the existing inference code.
+    """
+    params = dict(params)
+
+    aliases = {
+        "n_layers": "nLayers",
+        "n_filters": "nFilters",
+    }
+
+    for source_key, target_key in aliases.items():
+        if target_key not in params and source_key in params:
+            params[target_key] = params[source_key]
+
+    return params
+
+
+def _find_saved_normalization(model_dir):
+    """
+    Best-effort lookup of the normalization used by a new training run.
+
+    New runs currently store the complete YAML config chain, but older
+    run_summary.txt files do not necessarily contain a normalization
+    entry. Search the saved YAML files for a plain `normalization:` key.
+    """
+    configs_dir = model_dir / "configs"
+
+    if not configs_dir.exists():
+        return None
+
+    yaml_paths = sorted(configs_dir.rglob("*.yaml"))
+    yaml_paths += sorted(configs_dir.rglob("*.yml"))
+
+    found = []
+
+    for yaml_path in yaml_paths:
+        try:
+            lines = yaml_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+
+        for line in lines:
+            # Remove simple inline comments. This is intentionally only a
+            # lightweight fallback, not a complete YAML parser.
+            line = line.split("#", 1)[0].strip()
+
+            if not line.startswith("normalization:"):
+                continue
+
+            value = line.split(":", 1)[1].strip()
+            value = value.strip("\"'")
+
+            if value:
+                found.append(value.lower())
+
+    if not found:
+        return None
+
+    unique = list(dict.fromkeys(found))
+
+    if len(unique) > 1:
+        print(
+            "[inference] Warning: multiple normalization values were "
+            f"found in the saved configs: {unique}. Using {unique[0]!r}."
+        )
+
+    return unique[0]
+
+
+def _load_current_model_class(params, architecture):
+    """
+    Load UNet/YNet from the current walinet package.
+    """
+    _ensure_repo_src_on_path()
+
+    from walinet.model.model import yModel, uModel
+
+    architecture = _resolve_architecture(
+        params,
+        architecture,
+    )
+
+    if architecture == "ynet":
+        model_cls = yModel
+    elif architecture == "unet":
+        model_cls = uModel
+    else:
+        raise ValueError(
+            f"Unknown architecture '{architecture}'. "
+            "Use 'ynet', 'unet', or 'auto'."
+        )
+
+    return model_cls, architecture
+
+
+def _load_model_and_params(
+    exp,
+    model_root="../models",
+    architecture="auto",
+):
+    """
+    Load model metadata from one of the currently used folder formats.
+
+    Supported formats
+    -----------------
+    1. params.txt + current walinet package
+    2. run_summary.txt + saved configs + current walinet package
+    3. legacy copied src/config structure
+    """
     model_dir = Path(model_root) / exp
 
-    # New refactored model folder: params.txt + current walinet package
+    if not model_dir.is_dir():
+        raise FileNotFoundError(
+            f"Model directory does not exist: {model_dir}"
+        )
+
+    # ---------------------------------------------------------
+    # Format 1: params.txt + current walinet package
+    # ---------------------------------------------------------
     params_path = model_dir / "params.txt"
 
     if params_path.exists():
-        params = _parse_params_txt(params_path)
+        params = _canonicalize_model_params(
+            _parse_params_txt(params_path)
+        )
 
-        _ensure_repo_src_on_path()
-        from walinet.model.model import yModel, uModel
+        model_cls, architecture = _load_current_model_class(
+            params=params,
+            architecture=architecture,
+        )
 
-        architecture = _resolve_architecture(params, architecture)
+        return model_cls, params, architecture, model_dir
+
+    # ---------------------------------------------------------
+    # Format 2: run_summary.txt + configs + current package
+    # ---------------------------------------------------------
+    run_summary_path = model_dir / "run_summary.txt"
+
+    if run_summary_path.exists():
+        summary = _parse_params_txt(run_summary_path)
+        params = _canonicalize_model_params(summary)
+
+        required_keys = (
+            "nLayers",
+            "nFilters",
+            "in_channels",
+            "out_channels",
+        )
+
+        missing = [
+            key
+            for key in required_keys
+            if key not in params
+        ]
+
+        if missing:
+            raise KeyError(
+                "The new model folder contains run_summary.txt, but "
+                "required model parameters are missing:\n"
+                f"  file: {run_summary_path}\n"
+                f"  missing: {missing}"
+            )
+
+        # Current run_summary files may not yet store normalization.
+        # First search the saved YAML configs.
+        if "normalization" not in params:
+            saved_normalization = _find_saved_normalization(
+                model_dir
+            )
+
+            if saved_normalization is not None:
+                params["normalization"] = saved_normalization
+
+        model_cls, architecture = _load_current_model_class(
+            params=params,
+            architecture=architecture,
+        )
+
+        # Temporary compatibility fallback for the current generation of
+        # model folders. The new operator-free UNet uses max_abs. Legacy
+        # models never enter this branch.
+        if "normalization" not in params:
+            if architecture == "unet":
+                params["normalization"] = "max_abs"
+            else:
+                params["normalization"] = "projection_energy"
+
+            print(
+                "[inference] Warning: normalization was not stored in "
+                f"{run_summary_path.name} and could not be found in the "
+                "saved configs. Falling back to "
+                f"{params['normalization']!r} for architecture "
+                f"{architecture!r}."
+            )
+
+        return model_cls, params, architecture, model_dir
+
+    # ---------------------------------------------------------
+    # Format 3: legacy copied src/config structure
+    # ---------------------------------------------------------
+    for sub in os.listdir(model_dir):
+        if not sub.startswith("src"):
+            continue
+
+        sys.path.insert(
+            0,
+            str(model_dir.resolve()),
+        )
+        sys.path.insert(
+            0,
+            str((model_dir / sub).resolve()),
+        )
+
+        from config import params
+        from src.model import yModel
+
+        try:
+            from src.model import uModel
+        except Exception:
+            uModel = None
+
+        params = _canonicalize_model_params(
+            params
+        )
+
+        architecture = _resolve_architecture(
+            params,
+            architecture,
+        )
 
         if architecture == "ynet":
             model_cls = yModel
+
         elif architecture == "unet":
+            if uModel is None:
+                raise ImportError(
+                    "Legacy source does not contain uModel."
+                )
+
             model_cls = uModel
+
         else:
             raise ValueError(
                 f"Unknown architecture '{architecture}'. "
@@ -66,42 +291,33 @@ def _load_model_and_params(exp, model_root="../models", architecture="auto"):
 
         return model_cls, params, architecture, model_dir
 
-    # Legacy fallback: old copied src/config structure
-    for sub in os.listdir(model_dir):
-        if sub.startswith("src"):
-            sys.path.insert(0, str(model_dir.resolve()))
-            sys.path.insert(0, str((model_dir / sub).resolve()))
-
-            from config import params
-            from src.model import yModel
-
-            try:
-                from src.model import uModel
-            except Exception:
-                uModel = None
-
-            if architecture == "auto":
-                architecture = params.get("architecture", "ynet")
-
-            architecture = architecture.lower()
-
-            if architecture == "ynet":
-                model_cls = yModel
-            elif architecture == "unet":
-                if uModel is None:
-                    raise ImportError("Legacy source does not contain uModel.")
-                model_cls = uModel
-            else:
-                raise ValueError(
-                    f"Unknown architecture '{architecture}'. "
-                    "Use 'ynet', 'unet', or 'auto'."
-                )
-
-            return model_cls, params, architecture, model_dir
-
     raise FileNotFoundError(
-        f"Could not find params.txt or legacy src snapshot in {model_dir}"
+        "Could not identify the model-folder format. Expected one of:\n"
+        f"  {model_dir / 'params.txt'}\n"
+        f"  {model_dir / 'run_summary.txt'}\n"
+        f"  a legacy src* snapshot inside {model_dir}"
     )
+
+
+def _load_checkpoint_state_dict(
+    checkpoint_path,
+    device,
+):
+    """
+    Load either a raw state_dict or a wrapped checkpoint dictionary.
+    """
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location=device,
+    )
+
+    if isinstance(checkpoint, dict):
+        if "state_dict" in checkpoint:
+            checkpoint = checkpoint["state_dict"]
+        elif "model_state_dict" in checkpoint:
+            checkpoint = checkpoint["model_state_dict"]
+
+    return checkpoint
 
 
 def runNNLipRemoval2(
@@ -218,8 +434,11 @@ def runNNLipRemoval2(
 
     print(f"[runNNLipRemoval2] Loading checkpoint: {ckpt_path}")
 
-    ckpt = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(ckpt)
+    state_dict = _load_checkpoint_state_dict(
+        checkpoint_path=ckpt_path,
+        device=device,
+    )
+    model.load_state_dict(state_dict)
     model.to(device).eval()
 
     # Normalization
@@ -395,12 +614,12 @@ def runNNOnTrainDataH5(
 
     print(f"[runNNOnTrainDataH5] Loading checkpoint: {ckpt_path}")
 
-    ckpt = torch.load(ckpt_path, map_location=device)
+    state_dict = _load_checkpoint_state_dict(
+        checkpoint_path=ckpt_path,
+        device=device,
+    )
 
-    if isinstance(ckpt, dict) and "state_dict" in ckpt:
-        ckpt = ckpt["state_dict"]
-
-    model.load_state_dict(ckpt)
+    model.load_state_dict(state_dict)
     model.to(device).eval()
 
     # Valid rows
