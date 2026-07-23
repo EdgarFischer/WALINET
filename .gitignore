@@ -37,7 +37,8 @@ events.out.tfevents.*
 DataUsedForTraining.txt
 loss.txt
 models/
-#*.png
+*.png
+*.pdf
 
 # Ignore Jupyter notebook checkpoints
 .ipynb_checkpoints/
