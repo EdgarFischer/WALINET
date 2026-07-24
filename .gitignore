@@ -39,6 +39,7 @@ loss.txt
 models/
 *.png
 *.pdf
+B0_correction/
 
 # Ignore Jupyter notebook checkpoints
 .ipynb_checkpoints/
