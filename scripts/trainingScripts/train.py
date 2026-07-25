@@ -266,6 +266,30 @@ def dependency_destination_path(
     )
 
 
+def snapshot_source_code(
+    *,
+    model_dir: Path,
+) -> None:
+    """Copy the current src tree into the model directory."""
+    source = ROOT / "src"
+    destination = model_dir / "src"
+
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+        ),
+    )
+
+    print(
+        "Source snapshot created: "
+        f"{destination.relative_to(model_dir)}"
+    )
+
+
 def snapshot_reproducibility_configs(
     *,
     model_dir: Path,
@@ -747,6 +771,10 @@ if __name__ == "__main__":
     prepare_model_folder(
         model_dir=model_dir,
         overwrite=cfg.output.overwrite,
+    )
+
+    snapshot_source_code(
+        model_dir=model_dir,
     )
 
     snapshot_reproducibility_configs(
