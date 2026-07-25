@@ -4,12 +4,21 @@ version: "simulation_v5"
 acquisition:
   bandwidth_hz: 2778.0
 
-  # Fixed internal and output length after zero-filling.
+  # Internal maximum simulation length.
   n_timepoints: 840
 
-  # Actually acquired FID samples before zero-filling.
+  # Range of simulated native acquisition lengths.
   min_acquired_n_timepoints: 420
   max_acquired_n_timepoints: 840
+
+  # true:
+  #   Sample one acquisition length per spectrum and zero-fill
+  #   every spectrum to n_timepoints.
+  #
+  # false:
+  #   Sample one acquisition length for the complete batch and
+  #   return the batch at this native length without zero-filling.
+  zero_filling: false
 
   # Larmor frequency of the acquisition.
   #

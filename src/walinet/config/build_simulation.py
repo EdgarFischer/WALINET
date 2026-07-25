@@ -608,6 +608,12 @@ def build_simulation_config(
             "max_acquired_n_timepoints",
             parameter_path="acquisition",
         ),
+        zero_filling=_read_optional_bool(
+            acquisition_raw,
+            "zero_filling",
+            default=True,
+            parameter_path="acquisition",
+        ),
         nmr_frequency_hz=_require_float(
             acquisition_raw,
             "nmr_frequency_hz",

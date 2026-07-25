@@ -19,18 +19,25 @@ class AcquisitionLengthResult:
     Shapes
     ------
     spectra:
-        (batch_size, ..., n_timepoints)
+        (batch_size, ..., output_n_timepoints)
 
-        The function also supports an additional component axis,
-        for example (batch_size, 2, n_timepoints), so that input
-        and target can be transformed with exactly the same
-        acquisition lengths in one batched operation.
+        With zero-filling enabled, output_n_timepoints equals the
+        configured acquisition.n_timepoints.
+
+        Without zero-filling, output_n_timepoints equals the native
+        acquisition length sampled for the complete batch.
 
     acquired_n_timepoints:
         (batch_size,)
 
-        Number of actually acquired FID samples for each spectrum.
-        All later FID samples were set to zero before the final FFT.
+        Number of acquired FID samples for every spectrum.
+
+        With zero-filling enabled, the acquisition length may differ
+        between batch elements.
+
+        Without zero-filling, all entries contain the same value
+        because one native acquisition length is sampled for the
+        complete batch.
     """
 
     spectra: torch.Tensor
@@ -99,7 +106,7 @@ def _sample_acquired_n_timepoints(
     """
     Sample one inclusive acquisition length per batch element.
 
-    No random numbers are generated when minimum == maximum.
+    Used when zero-filling is enabled.
     """
     if minimum == maximum:
         return torch.full(
@@ -119,6 +126,33 @@ def _sample_acquired_n_timepoints(
     )
 
 
+def _sample_batch_acquisition_length(
+    *,
+    minimum: int,
+    maximum: int,
+    device: torch.device,
+    generator: torch.Generator,
+) -> int:
+    """
+    Sample one inclusive acquisition length for the complete batch.
+
+    Used when zero-filling is disabled.
+    """
+    if minimum == maximum:
+        return minimum
+
+    return int(
+        torch.randint(
+            low=minimum,
+            high=maximum + 1,
+            size=(),
+            generator=generator,
+            device=device,
+            dtype=torch.int64,
+        ).item()
+    )
+
+
 def simulate_acquisition_length(
     *,
     spectra: torch.Tensor,
@@ -126,15 +160,21 @@ def simulate_acquisition_length(
     generator: torch.Generator,
 ) -> AcquisitionLengthResult:
     """
-    Simulate a finite acquisition length followed by zero-filling.
+    Simulate a finite acquisition length.
 
-    Processing
-    ----------
-    1. Sample the number of acquired FID points for every batch item.
+    With zero-filling enabled
+    -------------------------
+    1. Sample one acquisition length per batch element.
     2. Convert fft-shifted spectra to FIDs.
-    3. Keep only the acquired FID samples.
-    4. Set all later FID samples to zero.
-    5. Transform back to fft-shifted spectra.
+    3. Set all later FID samples to zero.
+    4. Transform back using the configured full spectral length.
+
+    Without zero-filling
+    --------------------
+    1. Sample one acquisition length for the complete batch.
+    2. Convert fft-shifted spectra to FIDs.
+    3. Crop all FIDs to the sampled native length.
+    4. Transform back using the native spectral length.
 
     Fast path
     ---------
@@ -144,30 +184,7 @@ def simulate_acquisition_length(
         == max_acquired_n_timepoints
         == n_timepoints
 
-    the input tensor is returned unchanged. No IFFT, FFT, mask,
-    or random-number generation is performed.
-
-    Parameters
-    ----------
-    spectra:
-        Complex fft-shifted spectra with shape
-
-            (batch_size, ..., n_timepoints)
-
-        The first dimension must be the batch dimension and the
-        final dimension the spectral dimension.
-
-    config:
-        Complete simulation configuration.
-
-    generator:
-        Explicit torch random generator on the same device as
-        spectra.
-
-    Returns
-    -------
-    AcquisitionLengthResult
-        Transformed spectra and the sampled acquisition lengths.
+    the input tensor is returned unchanged.
     """
     if spectra.ndim < 2:
         raise ValueError(
@@ -244,18 +261,40 @@ def simulate_acquisition_length(
         device=device,
     )
 
-    acquired_n_timepoints = (
-        _sample_acquired_n_timepoints(
-            batch_size=batch_size,
-            minimum=minimum,
-            maximum=maximum,
-            device=device,
-            generator=generator,
-        )
+    zero_filling = bool(
+        config.acquisition.zero_filling
     )
 
-    # Exact identity configuration:
-    # no random draw, no mask, no IFFT, and no FFT.
+    if zero_filling:
+        acquired_n_timepoints = (
+            _sample_acquired_n_timepoints(
+                batch_size=batch_size,
+                minimum=minimum,
+                maximum=maximum,
+                device=device,
+                generator=generator,
+            )
+        )
+
+        batch_acquisition_length = None
+
+    else:
+        batch_acquisition_length = (
+            _sample_batch_acquisition_length(
+                minimum=minimum,
+                maximum=maximum,
+                device=device,
+                generator=generator,
+            )
+        )
+
+        acquired_n_timepoints = torch.full(
+            (batch_size,),
+            fill_value=batch_acquisition_length,
+            device=device,
+            dtype=torch.int64,
+        )
+
     if (
         minimum == n_timepoints
         and maximum == n_timepoints
@@ -275,40 +314,43 @@ def simulate_acquisition_length(
         dim=-1,
     )
 
-    time_indices = torch.arange(
-        n_timepoints,
-        device=device,
-        dtype=torch.int64,
-    )
-
-    acquisition_mask = (
-        time_indices[None, :]
-        < acquired_n_timepoints[:, None]
-    )
-
-    # Broadcast the same per-sample mask over any intermediate
-    # component dimensions, e.g. (B, 2, T).
-    mask_shape = (
-        (batch_size,)
-        + (1,) * (spectra.ndim - 2)
-        + (n_timepoints,)
-    )
-
-    acquisition_mask = (
-        acquisition_mask.view(
-            mask_shape
+    if zero_filling:
+        time_indices = torch.arange(
+            n_timepoints,
+            device=device,
+            dtype=torch.int64,
         )
-    )
 
-    zero_filled_fids = (
-        fids
-        * acquisition_mask
-    )
+        acquisition_mask = (
+            time_indices[None, :]
+            < acquired_n_timepoints[:, None]
+        )
+
+        mask_shape = (
+            (batch_size,)
+            + (1,) * (spectra.ndim - 2)
+            + (n_timepoints,)
+        )
+
+        transformed_fids = (
+            fids
+            * acquisition_mask.view(
+                mask_shape
+            )
+        )
+
+    else:
+        transformed_fids = (
+            fids[
+                ...,
+                :batch_acquisition_length,
+            ]
+        )
 
     transformed_spectra = (
         torch.fft.fftshift(
             torch.fft.fft(
-                zero_filled_fids,
+                transformed_fids,
                 dim=-1,
             ),
             dim=-1,

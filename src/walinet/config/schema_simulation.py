@@ -185,10 +185,13 @@ class AcquisitionCfg:
     """
     Acquisition parameters of the simulated spectra.
 
-    ``n_timepoints`` is the fixed internal FID length and final spectral
-    length. The actually acquired FID length is sampled inclusively between
-    ``min_acquired_n_timepoints`` and ``max_acquired_n_timepoints``; later FID
-    samples are zero-filled before the final FFT.
+    ``n_timepoints`` is the fixed internal maximum FID length.
+
+    With zero-filling enabled, one acquisition length is sampled per
+    spectrum and all spectra retain ``n_timepoints`` samples.
+
+    Without zero-filling, one acquisition length is sampled for the
+    complete batch and the batch is returned at this native length.
     """
 
     bandwidth_hz: float
@@ -196,6 +199,8 @@ class AcquisitionCfg:
 
     min_acquired_n_timepoints: int
     max_acquired_n_timepoints: int
+
+    zero_filling: bool
 
     nmr_frequency_hz: float
 

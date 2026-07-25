@@ -22,6 +22,8 @@ Für paper:
 * realistische parameter verteilungen : Noramal
 * FWHM jetzt als parameter der die alten ersetzt!
 
+* Dadurch das man lipid proj. operator weglässt, kann man flexible spektrale auflösungen trainieren!
+
 * Tumor Verteilung und healthy separat, im training zufällig ziehen aus welcher verteilung die  metabos gezogen werden.
 
 * Achtung man muss zeigen das die marginalen veteilungen der simulierten spektren mit denen der in vivo übereinstimmt, das muss nicht das gleiche sein als vorher

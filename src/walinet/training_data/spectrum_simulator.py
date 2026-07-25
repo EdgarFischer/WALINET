@@ -801,9 +801,11 @@ class SpectrumSimulator:
         result: SimulatedSpectrumBatch,
         expected_batch_size: int,
     ) -> None:
+        output_n_timepoints = result.n_timepoints
+
         expected_spectrum_shape = (
             expected_batch_size,
-            self.n_timepoints,
+            output_n_timepoints,
         )
 
         if tuple(
@@ -897,15 +899,17 @@ class SpectrumSimulator:
         *,
         result: PreparedSpectrumBatch,
     ) -> None:
+        output_n_timepoints = result.raw.n_timepoints
+
         expected_complex_shape = (
             result.batch_size,
-            self.n_timepoints,
+            output_n_timepoints,
         )
 
         expected_channel_shape = (
             result.batch_size,
             2,
-            self.n_timepoints,
+            output_n_timepoints,
         )
 
         expected_scale_shape = (
