@@ -477,9 +477,26 @@ def train_one_epoch(
             time.perf_counter()
         )
 
+        acquisition_length_override = None
+
+        if (
+            epoch == 0
+            and batch_index == 0
+            and not simulator.config.acquisition.zero_filling
+        ):
+            acquisition_length_override = int(
+                simulator
+                .config
+                .acquisition
+                .max_acquired_n_timepoints
+            )
+
         simulated = simulator.simulate(
             batch_size=batch_size,
             generator=generator,
+            acquisition_length_override=(
+                acquisition_length_override
+            ),
         )
 
         if torch.device(

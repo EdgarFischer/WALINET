@@ -158,6 +158,7 @@ def simulate_acquisition_length(
     spectra: torch.Tensor,
     config: SimulationConfig,
     generator: torch.Generator,
+    acquisition_length_override: int | None = None,
 ) -> AcquisitionLengthResult:
     """
     Simulate a finite acquisition length.
@@ -265,28 +266,58 @@ def simulate_acquisition_length(
         config.acquisition.zero_filling
     )
 
-    if zero_filling:
-        acquired_n_timepoints = (
-            _sample_acquired_n_timepoints(
-                batch_size=batch_size,
-                minimum=minimum,
-                maximum=maximum,
-                device=device,
-                generator=generator,
-            )
+    if acquisition_length_override is not None:
+        acquisition_length_override = int(
+            acquisition_length_override
         )
+
+        if not (
+            minimum
+            <= acquisition_length_override
+            <= maximum
+        ):
+            raise ValueError(
+                "acquisition_length_override must be within "
+                "the configured acquisition-length range:\n"
+                f"  override: {acquisition_length_override}\n"
+                f"  range:    [{minimum}, {maximum}]"
+            )
+
+    if zero_filling:
+        if acquisition_length_override is None:
+            acquired_n_timepoints = (
+                _sample_acquired_n_timepoints(
+                    batch_size=batch_size,
+                    minimum=minimum,
+                    maximum=maximum,
+                    device=device,
+                    generator=generator,
+                )
+            )
+        else:
+            acquired_n_timepoints = torch.full(
+                (batch_size,),
+                fill_value=acquisition_length_override,
+                device=device,
+                dtype=torch.int64,
+            )
 
         batch_acquisition_length = None
 
     else:
-        batch_acquisition_length = (
-            _sample_batch_acquisition_length(
-                minimum=minimum,
-                maximum=maximum,
-                device=device,
-                generator=generator,
+        if acquisition_length_override is None:
+            batch_acquisition_length = (
+                _sample_batch_acquisition_length(
+                    minimum=minimum,
+                    maximum=maximum,
+                    device=device,
+                    generator=generator,
+                )
             )
-        )
+        else:
+            batch_acquisition_length = (
+                acquisition_length_override
+            )
 
         acquired_n_timepoints = torch.full(
             (batch_size,),

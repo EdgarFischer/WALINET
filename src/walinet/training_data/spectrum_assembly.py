@@ -385,6 +385,7 @@ def assemble_spectra(
     pool: SimulationPool,
     config: SimulationConfig,
     generator: torch.Generator,
+    acquisition_length_override: int | None = None,
 ) -> AssembledSpectra:
     """
     Scale and combine frequency-domain simulation components.
@@ -625,6 +626,9 @@ def assemble_spectra(
         spectra=stacked_spectra,
         config=config,
         generator=generator,
+        acquisition_length_override=(
+            acquisition_length_override
+        ),
     )
 
     acquired_clean_mixture_spectra = (
