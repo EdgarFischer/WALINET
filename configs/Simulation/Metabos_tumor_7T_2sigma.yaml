@@ -65,24 +65,6 @@ metabolites:
       minimum: 0.0
 
 
-  BHB:
-    enabled: false
-    basis_component: null
-    unavailable_reason: Not present in the current LCModel basis
-    distribution:
-      type: positive_mixture
-
-      normal:
-        mean: null
-        std: null
-
-      lognormal:
-        log_mu: null
-        log_sigma: null
-
-      minimum: 0.0
-
-
   Cr:
     enabled: true
     basis_component: Cr
@@ -336,25 +318,6 @@ metabolites:
 
       minimum: 0.0
 
-
-  Pyr:
-    enabled: false
-    basis_component: null
-    unavailable_reason: Not present in the current LCModel basis
-    distribution:
-      type: positive_mixture
-
-      normal:
-        mean: null
-        std: null
-
-      lognormal:
-        log_mu: null
-        log_sigma: null
-
-      minimum: 0.0
-
-
   Scy:
     enabled: true
     basis_component: Scyllo
@@ -386,25 +349,6 @@ metabolites:
         log_sigma: 1.97
 
       minimum: 0.0
-
-
-  Suc:
-    enabled: false
-    basis_component: null
-    unavailable_reason: Not present in the current LCModel basis
-    distribution:
-      type: positive_mixture
-
-      normal:
-        mean: null
-        std: null
-
-      lognormal:
-        log_mu: null
-        log_sigma: null
-
-      minimum: 0.0
-
 
   Tau:
     enabled: true

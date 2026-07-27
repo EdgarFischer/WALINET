@@ -220,22 +220,10 @@ def _load_model_and_params(
             architecture=architecture,
         )
 
-        # Temporary compatibility fallback for the current generation of
-        # model folders. The new operator-free UNet uses max_abs. Legacy
-        # models never enter this branch.
+        # Max-abs is the only supported normalization for current model
+        # folders. Older runs may not have stored it explicitly.
         if "normalization" not in params:
-            if architecture == "unet":
-                params["normalization"] = "max_abs"
-            else:
-                params["normalization"] = "projection_energy"
-
-            print(
-                "[inference] Warning: normalization was not stored in "
-                f"{run_summary_path.name} and could not be found in the "
-                "saved configs. Falling back to "
-                f"{params['normalization']!r} for architecture "
-                f"{architecture!r}."
-            )
+            params["normalization"] = "max_abs"
 
         return model_cls, params, architecture, model_dir
 

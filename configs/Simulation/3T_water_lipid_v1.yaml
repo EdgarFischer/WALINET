@@ -1,26 +1,26 @@
 version: "water_lipid_v1"
 
 data:
-  base_dir: "../../data/3T"
+  base_dir: "../../data/3T/B0corrected_wo_LipidMask"
 
   subjects:
     # ClimaX_Brisbane
-   # - "ClimaX_Brisbane/Vol4/Res36x36"
-   # - "ClimaX_Brisbane/Vol4/Res50x50"
-   # - "ClimaX_Brisbane/Vol5/Res36x36"
-   # - "ClimaX_Brisbane/Vol5/Res50x50"
-   # - "ClimaX_Brisbane/Vol6/Res36x36"
-   # - "ClimaX_Brisbane/Vol6/Res50x50"
-   # - "ClimaX_Brisbane/Vol7/Res36x36"
-   # - "ClimaX_Brisbane/Vol7/Res50x50"
-   # - "ClimaX_Brisbane/Vol8/Res36x36"
-   # - "ClimaX_Brisbane/Vol8/Res50x50"
+    - "ClimaX_Brisbane/Vol4/Res36x36"
+    - "ClimaX_Brisbane/Vol4/Res50x50"
+    - "ClimaX_Brisbane/Vol5/Res36x36"
+    - "ClimaX_Brisbane/Vol5/Res50x50"
+    - "ClimaX_Brisbane/Vol6/Res36x36"
+    - "ClimaX_Brisbane/Vol6/Res50x50"
+    - "ClimaX_Brisbane/Vol7/Res36x36"
+    - "ClimaX_Brisbane/Vol7/Res50x50"
+    - "ClimaX_Brisbane/Vol8/Res36x36"
+    - "ClimaX_Brisbane/Vol8/Res50x50"
 
     # PRISMAFIT_Vienna
-    #- "PRISMAFIT_Vienna/Vol01_BS/Res36x36"
-    #- "PRISMAFIT_Vienna/Vol01_BS/Res50x50"
-    #- "PRISMAFIT_Vienna/Vol01_BS/Res64x64x41"
-    #- "PRISMAFIT_Vienna/Vol02_LH/Res36x36"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res36x36"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res50x50"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res64x64x41"
+    - "PRISMAFIT_Vienna/Vol02_LH/Res36x36"
     - "PRISMAFIT_Vienna/Vol02_LH/Res50x50"
     - "PRISMAFIT_Vienna/Vol02_LH/Res64x64x41"
     - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res36x36"

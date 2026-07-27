@@ -1,7 +1,7 @@
 run:
-  name: "7T_New_WALI_For_Real_1.0"
+  name: "7T_New_WALI_2.1"
   seed: 42
-  gpu: 2
+  gpu: 3
 
 data:
   base_dir: "../../data/7T/B0corrected_wo_LipidMask"
@@ -20,11 +20,11 @@ output:
   overwrite: false
 
 training:
-  batch_size: 2000
+  batch_size: 950
   epochs: 400
 
   # Number of newly simulated training batches per epoch.
-  n_batches: 300
+  n_batches: 600
 
   # Print information for every individual batch.
   verbose: false
@@ -37,16 +37,16 @@ validation:
   batch_size: 3300
 
 optim:
-  lr: 0.0004
+  lr: 0.0002
 
 scheduler:
-  milestones: [50, 100, 150, 200, 250]
+  milestones: [50, 100, 150, 200]
   gamma: 0.5
 
 model:
   architecture: "unet"  # "unet" or "ynet"
   n_layers: 6
-  n_filters: 16
+  n_filters: 32
   in_channels: 2
   out_channels: 2
   dropout: 0.0
@@ -55,4 +55,4 @@ checkpoint:
   # Loads only model weights from:
   # ../../models/<preload_model>/model_last.pt
   preload: false
-  preload_model: "7T_Unet_6Layer_558_NoB0Cor_2"
+  preload_model: ""
