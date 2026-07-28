@@ -283,11 +283,11 @@ class MetaboliteProfileCfg:
 
         if (
             not math.isfinite(self.probability)
-            or self.probability <= 0
+            or self.probability < 0
         ):
             raise ValueError(
                 "metabolites.profiles[].probability must be "
-                "finite and > 0."
+                "finite and >= 0."
             )
 
 

@@ -98,7 +98,7 @@ resources:
 
 lipid_projection:
   enabled: true
-  n_timepoints: [100, 200]
+  n_timepoints: [142, 200]
   target: 0.938
   tol: 0.005
   max_iter: 60

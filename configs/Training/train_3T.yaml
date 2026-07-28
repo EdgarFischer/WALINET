@@ -1,89 +1,89 @@
 run:
-  name: "3T_New_WALI_1.0"
+  name: "3T_New_WALI_2"
   seed: 42
-  gpu: 3
+  gpu: 2
 
 data:
-  base_dir: "../../data/3T"
+  base_dir: "../../data/3T/B0corrected_wo_LipidMask"
 
   train_subjects:
     # ClimaX_Brisbane
     - "ClimaX_Brisbane/Vol4/Res36x36"
-    # - "ClimaX_Brisbane/Vol4/Res50x50"
-    # - "ClimaX_Brisbane/Vol5/Res36x36"
-    # - "ClimaX_Brisbane/Vol5/Res50x50"
-    # - "ClimaX_Brisbane/Vol6/Res36x36"
-    # - "ClimaX_Brisbane/Vol6/Res50x50"
-    # - "ClimaX_Brisbane/Vol7/Res36x36"
-    # - "ClimaX_Brisbane/Vol7/Res50x50"
+    - "ClimaX_Brisbane/Vol4/Res50x50"
+    - "ClimaX_Brisbane/Vol5/Res36x36"
+    - "ClimaX_Brisbane/Vol5/Res50x50"
+    - "ClimaX_Brisbane/Vol6/Res36x36"
+    - "ClimaX_Brisbane/Vol6/Res50x50"
+    - "ClimaX_Brisbane/Vol7/Res36x36"
+    - "ClimaX_Brisbane/Vol7/Res50x50"
 
-    # # PRISMAFIT_Vienna
-    # - "PRISMAFIT_Vienna/Vol01_BS/Res36x36"
-    # - "PRISMAFIT_Vienna/Vol01_BS/Res50x50"
-    # - "PRISMAFIT_Vienna/Vol01_BS/Res64x64x41"
-    # - "PRISMAFIT_Vienna/Vol02_LH/Res36x36"
-    # - "PRISMAFIT_Vienna/Vol02_LH/Res50x50"
-    # - "PRISMAFIT_Vienna/Vol02_LH/Res64x64x41"
-    # - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res36x36"
-    # - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res50x50"
-    # - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res64x64x41"
-    # - "PRISMAFIT_Vienna/Vol03_WB/Res36x36"
-    # - "PRISMAFIT_Vienna/Vol03_WB/Res50x50"
-    # - "PRISMAFIT_Vienna/Vol03_WB/Res64x64x41"
+    # PRISMAFIT_Vienna
+    - "PRISMAFIT_Vienna/Vol01_BS/Res36x36"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res50x50"
+    - "PRISMAFIT_Vienna/Vol01_BS/Res64x64x41"
+    - "PRISMAFIT_Vienna/Vol02_LH/Res36x36"
+    - "PRISMAFIT_Vienna/Vol02_LH/Res50x50"
+    - "PRISMAFIT_Vienna/Vol02_LH/Res64x64x41"
+    - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res36x36"
+    - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res50x50"
+    - "PRISMAFIT_Vienna/Vol02_SM_RESCAN/Res64x64x41"
+    - "PRISMAFIT_Vienna/Vol03_WB/Res36x36"
+    - "PRISMAFIT_Vienna/Vol03_WB/Res50x50"
+    - "PRISMAFIT_Vienna/Vol03_WB/Res64x64x41"
 
-    # # PRISMA_Vienna
-    # - "PRISMA_Vienna/Vol01_WB/Res36x36"
-    # - "PRISMA_Vienna/Vol01_WB/Res50x50"
-    # - "PRISMA_Vienna/Vol01_WB/Res64x64x41"
-    # - "PRISMA_Vienna/Vol01_WB/Res64x64x47"
-    # - "PRISMA_Vienna/Vol02_BS/Res36x36"
-    # - "PRISMA_Vienna/Vol02_BS/Res50x50"
-    # - "PRISMA_Vienna/Vol02_BS/Res64x64x41"
-    # - "PRISMA_Vienna/Vol02_BS/Res64x64x47"
-    # - "PRISMA_Vienna/Vol03_SH/Res36x36"
-    # - "PRISMA_Vienna/Vol03_SH/Res50x50"
-    # - "PRISMA_Vienna/Vol03_SH/Res64x64x41"
-    # - "PRISMA_Vienna/Vol03_SH/Res64x64x47"
-    # - "PRISMA_Vienna/Vol04_SM/Res36x36"
-    # - "PRISMA_Vienna/Vol04_SM/Res50x50"
-    # - "PRISMA_Vienna/Vol04_SM/Res64x64x41"
-    # - "PRISMA_Vienna/Vol04_SM/Res64x64x47"
+    # PRISMA_Vienna
+    - "PRISMA_Vienna/Vol01_WB/Res36x36"
+    - "PRISMA_Vienna/Vol01_WB/Res50x50"
+    - "PRISMA_Vienna/Vol01_WB/Res64x64x41"
+    - "PRISMA_Vienna/Vol01_WB/Res64x64x47"
+    - "PRISMA_Vienna/Vol02_BS/Res36x36"
+    - "PRISMA_Vienna/Vol02_BS/Res50x50"
+    - "PRISMA_Vienna/Vol02_BS/Res64x64x41"
+    - "PRISMA_Vienna/Vol02_BS/Res64x64x47"
+    - "PRISMA_Vienna/Vol03_SH/Res36x36"
+    - "PRISMA_Vienna/Vol03_SH/Res50x50"
+    - "PRISMA_Vienna/Vol03_SH/Res64x64x41"
+    - "PRISMA_Vienna/Vol03_SH/Res64x64x47"
+    - "PRISMA_Vienna/Vol04_SM/Res36x36"
+    - "PRISMA_Vienna/Vol04_SM/Res50x50"
+    - "PRISMA_Vienna/Vol04_SM/Res64x64x41"
+    - "PRISMA_Vienna/Vol04_SM/Res64x64x47"
 
-    # # VIDA_Vienna
-    # - "VIDA_Vienna/Vol01_PW/Res36x36"
-    # - "VIDA_Vienna/Vol01_PW/Res50x50"
-    # - "VIDA_Vienna/Vol01_PW/Res64x64x41"
-    # - "VIDA_Vienna/Vol01_PW/Res64x64x47"
-    # - "VIDA_Vienna/Vol02_BS/Res36x36"
-    # - "VIDA_Vienna/Vol02_BS/Res50x50"
-    # - "VIDA_Vienna/Vol02_BS/Res64x64x41"
-    # - "VIDA_Vienna/Vol03_TE/Res36x36"
-    # - "VIDA_Vienna/Vol03_TE/Res50x50"
-    # - "VIDA_Vienna/Vol03_TE/Res64x64x41"
-    # - "VIDA_Vienna/Vol04_AA/Res36x36"
-    # - "VIDA_Vienna/Vol04_AA/Res50x50"
-    # - "VIDA_Vienna/Vol04_AA/Res64x64x41"
+    # VIDA_Vienna
+    - "VIDA_Vienna/Vol01_PW/Res36x36"
+    - "VIDA_Vienna/Vol01_PW/Res50x50"
+    - "VIDA_Vienna/Vol01_PW/Res64x64x41"
+    - "VIDA_Vienna/Vol01_PW/Res64x64x47"
+    - "VIDA_Vienna/Vol02_BS/Res36x36"
+    - "VIDA_Vienna/Vol02_BS/Res50x50"
+    - "VIDA_Vienna/Vol02_BS/Res64x64x41"
+    - "VIDA_Vienna/Vol03_TE/Res36x36"
+    - "VIDA_Vienna/Vol03_TE/Res50x50"
+    - "VIDA_Vienna/Vol03_TE/Res64x64x41"
+    - "VIDA_Vienna/Vol04_AA/Res36x36"
+    - "VIDA_Vienna/Vol04_AA/Res50x50"
+    - "VIDA_Vienna/Vol04_AA/Res64x64x41"
 
   val_subjects:
     # ClimaX_Brisbane
     - "ClimaX_Brisbane/Vol8/Res36x36"
-    # - "ClimaX_Brisbane/Vol8/Res50x50"
+    - "ClimaX_Brisbane/Vol8/Res50x50"
 
-    # # PRISMAFIT_Vienna
-    # - "PRISMAFIT_Vienna/Vol04_LP/Res36x36"
-    # - "PRISMAFIT_Vienna/Vol04_LP/Res50x50"
-    # - "PRISMAFIT_Vienna/Vol04_LP/Res64x64x41"
+    # PRISMAFIT_Vienna
+    - "PRISMAFIT_Vienna/Vol04_LP/Res36x36"
+    - "PRISMAFIT_Vienna/Vol04_LP/Res50x50"
+    - "PRISMAFIT_Vienna/Vol04_LP/Res64x64x41"
 
-    # # PRISMA_Vienna
-    # - "PRISMA_Vienna/Vol05_LH/Res36x36"
-    # - "PRISMA_Vienna/Vol05_LH/Res50x50"
-    # - "PRISMA_Vienna/Vol05_LH/Res64x64x41"
-    # - "PRISMA_Vienna/Vol05_LH/Res64x64x47"
+    # PRISMA_Vienna
+    - "PRISMA_Vienna/Vol05_LH/Res36x36"
+    - "PRISMA_Vienna/Vol05_LH/Res50x50"
+    - "PRISMA_Vienna/Vol05_LH/Res64x64x41"
+    - "PRISMA_Vienna/Vol05_LH/Res64x64x47"
 
-    # # VIDA_Vienna
-    # - "VIDA_Vienna/Vol05_LH/Res36x36"
-    # - "VIDA_Vienna/Vol05_LH/Res50x50"
-    # - "VIDA_Vienna/Vol05_LH/Res64x64x41"
+    # VIDA_Vienna
+    - "VIDA_Vienna/Vol05_LH/Res36x36"
+    - "VIDA_Vienna/Vol05_LH/Res50x50"
+    - "VIDA_Vienna/Vol05_LH/Res64x64x41"
 
   simulation_config: "../Simulation/3T_on_the_fly.yaml"
 
@@ -131,4 +131,4 @@ checkpoint:
   # Loads only model weights from:
   # ../../models/<preload_model>/model_last.pt
   preload: false
-  preload_model: "7T_Unet_6Layer_558_NoB0Cor_2"
+  preload_model: ""
