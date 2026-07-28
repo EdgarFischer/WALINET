@@ -186,26 +186,44 @@ def _infer_spectra(
 
 
 def infer_fid(
-    fid: np.ndarray,
+    fid: Union[np.ndarray, str, Path],
     model_dir: Union[str, Path],
     *,
     output_path: Union[str, Path, None] = None,
     fid_axis: Union[int, str] = "auto",
-    headmask: np.ndarray | None = None,
+    headmask: Union[np.ndarray, str, Path, None] = None,
     checkpoint: str = "model_best.pt",
     batch_size: int = 200,
     device: Union[str, torch.device, None] = None,
     eps: float = 1e-8,
 ) -> np.ndarray:
-    """Remove nuisance signals from complex FIDs with a trained U-Net."""
+    """Remove nuisance signals from complex FIDs with a trained U-Net.
+
+    ``fid`` and ``headmask`` may be NumPy arrays or paths to ``.npy`` files.
+    """
+    if isinstance(fid, (str, Path)):
+        fid_path = Path(fid).expanduser()
+        if fid_path.suffix.lower() != ".npy":
+            raise ValueError("Only .npy FID input is currently supported.")
+        fid = np.load(fid_path)
     if not isinstance(fid, np.ndarray):
-        raise TypeError("fid must be a numpy.ndarray.")
+        raise TypeError("fid must be a numpy.ndarray or a path to a .npy file.")
     if fid.ndim == 0:
         raise ValueError("fid must have at least one dimension.")
     if not np.issubdtype(fid.dtype, np.number):
         raise TypeError("fid must contain numeric values.")
     if batch_size <= 0:
         raise ValueError("batch_size must be > 0.")
+
+    if isinstance(headmask, (str, Path)):
+        headmask_path = Path(headmask).expanduser()
+        if headmask_path.suffix.lower() != ".npy":
+            raise ValueError("Only .npy headmask input is currently supported.")
+        headmask = np.load(headmask_path)
+    if headmask is not None and not isinstance(headmask, np.ndarray):
+        raise TypeError(
+            "headmask must be a numpy.ndarray, a path to a .npy file, or None."
+        )
 
     if fid_axis == "auto":
         original_axis = int(np.argmax(fid.shape))

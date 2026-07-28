@@ -1,0 +1,58 @@
+run:
+  name: "7T_New_WALI_2.1"
+  seed: 42
+  gpu: 3
+
+data:
+  base_dir: "../../data/7T/B0corrected_wo_LipidMask"
+
+  train_subjects: ['Vol3_Brisbane'] #, 'Vol4_Brisbane', 'Vol5_Brisbane', 'Vol6_Brisbane', 'Vol2_London', 'Vol3_London', 'Vol4_London', 'Vol5_London', 'Vol6', 'Vol7', 'Vol8', 'Vol9']
+  val_subjects: ['Vol5'] #, 'Vol1_Brisbane', 'Vol1_London']
+
+  simulation_config: "../Simulation/7T_on_the_fly.yaml"
+
+  resources:
+    version: "water_lipid_v1"
+    filename: "TrainData/SimulationResources_{version}.h5"
+
+output:
+  base_dir: "../../models"
+  overwrite: false
+
+training:
+  batch_size: 950
+  epochs: 400
+
+  # Number of newly simulated training batches per epoch.
+  n_batches: 600
+
+  # Print information for every individual batch.
+  verbose: false
+
+validation:
+  # A fixed synthetic validation dataset is generated once at startup
+  # and reused after every epoch.
+  seed: 12345
+  n_spectra: 35000
+  batch_size: 3300
+
+optim:
+  lr: 0.0002
+
+scheduler:
+  milestones: [50, 100, 150, 200]
+  gamma: 0.5
+
+model:
+  architecture: "unet"  # "unet" or "ynet"
+  n_layers: 6
+  n_filters: 32
+  in_channels: 2
+  out_channels: 2
+  dropout: 0.0
+
+checkpoint:
+  # Loads only model weights from:
+  # ../../models/<preload_model>/model_last.pt
+  preload: false
+  preload_model: ""

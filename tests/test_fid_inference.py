@@ -1,5 +1,7 @@
 import numpy as np
+import torch
 
+from walinet.inference import fid_inference
 from walinet.inference.fid_inference import (
     AcquisitionInfo,
     _fid_to_spectrum,
@@ -71,3 +73,55 @@ def test_moved_fid_axis_can_be_restored_to_original_position():
 
     assert restored.shape == fid.shape
     np.testing.assert_array_equal(restored, fid)
+
+
+def test_infer_fid_accepts_numpy_paths_and_saves_output(tmp_path, monkeypatch):
+    class ZeroNuisanceModel(torch.nn.Module):
+        def __init__(self, **kwargs):
+            super().__init__()
+
+        def forward(self, spectra):
+            return torch.zeros_like(spectra)
+
+    fid = np.ones((2, 3, 8), dtype=np.complex64)
+    mask = np.ones((2, 3), dtype=bool)
+    fid_path = tmp_path / "data.npy"
+    mask_path = tmp_path / "mask.npy"
+    output_path = tmp_path / "clean.npy"
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "model_best.pt").touch()
+    np.save(fid_path, fid)
+    np.save(mask_path, mask)
+
+    monkeypatch.setattr(
+        fid_inference,
+        "_load_model_and_params",
+        lambda **kwargs: (
+            ZeroNuisanceModel,
+            {
+                "nLayers": 1,
+                "nFilters": 1,
+                "in_channels": 2,
+                "out_channels": 2,
+                "normalization": "max_abs",
+            },
+            "unet",
+            model_dir,
+        ),
+    )
+    monkeypatch.setattr(
+        fid_inference, "_load_checkpoint_state_dict", lambda *args, **kwargs: {}
+    )
+
+    result = fid_inference.infer_fid(
+        fid=fid_path,
+        headmask=mask_path,
+        model_dir=model_dir,
+        output_path=output_path,
+        fid_axis=-1,
+        device="cpu",
+    )
+
+    np.testing.assert_allclose(result, fid, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(np.load(output_path), fid, rtol=1e-6, atol=1e-6)
