@@ -1,6 +1,8 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
+import h5py
 import nibabel as nib
 import numpy as np
 
@@ -362,6 +364,275 @@ def load_subject_original_and_walinet_fids(
     )
 
     return original_fids, after_walinet_fids
+
+
+@dataclass(frozen=True)
+class ScalingCalibrationSubjectData:
+    """Spatially aligned inputs for water/lipid scaling calibration.
+
+    All FID arrays have shape ``(X, Y, Z, T)``. Subjects are deliberately
+    kept separate so different spatial matrix sizes can coexist.
+    """
+
+    subject_dir: Path
+    full_fids: np.ndarray
+    after_walinet_fids: np.ndarray
+    water_fids: np.ndarray
+    brain_mask: np.ndarray
+
+    @property
+    def metabolites(self) -> np.ndarray:
+        """WALINET nuisance-free FIDs (metabolites plus residual noise)."""
+        return self.after_walinet_fids
+
+    @property
+    def nuisance(self) -> np.ndarray:
+        """Nuisance predicted by WALINET: full minus nuisance-free FIDs."""
+        return self.full_fids - self.after_walinet_fids
+
+    @property
+    def lipids(self) -> np.ndarray:
+        """Estimated lipid FIDs: WALINET nuisance minus isolated water."""
+        return self.full_fids - self.after_walinet_fids - self.water_fids
+
+
+def _load_complex_fid_volume(
+    path: str | Path,
+    *,
+    description: str,
+    mmap_mode: str | None = "r",
+) -> np.ndarray:
+    """Load and validate one complex spatial FID volume."""
+    path = Path(path)
+
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{description} not found:\n  {path}"
+        )
+
+    fids = np.load(
+        path,
+        allow_pickle=False,
+        mmap_mode=mmap_mode,
+    )
+
+    if fids.ndim != 4:
+        raise ValueError(
+            f"{description} must have shape (X, Y, Z, T):\n"
+            f"  file:  {path}\n"
+            f"  shape: {fids.shape}"
+        )
+
+    if not np.issubdtype(fids.dtype, np.complexfloating):
+        raise TypeError(
+            f"{description} must be complex-valued:\n"
+            f"  file:  {path}\n"
+            f"  dtype: {fids.dtype}"
+        )
+
+    return fids
+
+
+def load_subject_after_walinet_fids(
+    subject_dir: str | Path,
+    *,
+    relative_path: str | Path = "OriginalData/data_after_walinet.npy",
+    mmap_mode: str | None = "r",
+) -> np.ndarray:
+    """Load one subject's spatially resolved nuisance-free WALINET FIDs."""
+    subject_dir = Path(subject_dir).expanduser().resolve()
+
+    return _load_complex_fid_volume(
+        subject_dir / relative_path,
+        description="WALINET nuisance-free FID volume",
+        mmap_mode=mmap_mode,
+    )
+
+
+def load_subject_simulation_water_fids(
+    subject_dir: str | Path,
+    *,
+    resource_relative_path: str | Path = (
+        "TrainData/SimulationResources_water_lipid_v1.h5"
+    ),
+    verify_external_mask: bool = True,
+    external_mask_relative_path: str | Path = "masks/brain_mask.npy",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load spatial water FIDs and their brain mask from simulation resources.
+
+    The HDF5 brain mask is authoritative because it is stored together with
+    ``water_fids``. When requested and available, the external ``.npy`` mask
+    is checked for exact agreement but is not used as a second data source.
+    """
+    subject_dir = Path(subject_dir).expanduser().resolve()
+    resource_path = subject_dir / resource_relative_path
+
+    if not resource_path.is_file():
+        raise FileNotFoundError(
+            "Simulation resource file not found:\n"
+            f"  {resource_path}"
+        )
+
+    with h5py.File(resource_path, "r") as h5:
+        for key in ("water_fids", "brain_mask"):
+            if key not in h5:
+                raise KeyError(
+                    f"Dataset {key!r} is missing from:\n  {resource_path}"
+                )
+
+        water_fids = np.asarray(
+            h5["water_fids"][:],
+            dtype=np.complex64,
+        )
+        brain_mask = np.asarray(
+            h5["brain_mask"][:],
+            dtype=bool,
+        )
+
+        domain = h5.attrs.get("domain")
+        if isinstance(domain, bytes):
+            domain = domain.decode("utf-8")
+        if domain is not None and str(domain).lower() != "fid":
+            raise ValueError(
+                "Simulation water must be stored in the FID domain:\n"
+                f"  file:   {resource_path}\n"
+                f"  domain: {domain}"
+            )
+
+    if water_fids.ndim != 4:
+        raise ValueError(
+            "water_fids must have shape (X, Y, Z, T):\n"
+            f"  file:  {resource_path}\n"
+            f"  shape: {water_fids.shape}"
+        )
+
+    if brain_mask.shape != water_fids.shape[:-1]:
+        raise ValueError(
+            "HDF5 water and brain mask have incompatible shapes:\n"
+            f"  file:  {resource_path}\n"
+            f"  water: {water_fids.shape}\n"
+            f"  mask:  {brain_mask.shape}"
+        )
+
+    if not np.all(np.isfinite(water_fids)):
+        raise ValueError(
+            f"water_fids contains NaN or Inf:\n  {resource_path}"
+        )
+
+    if verify_external_mask:
+        external_mask_path = subject_dir / external_mask_relative_path
+        if external_mask_path.is_file():
+            external_mask = np.asarray(
+                np.load(external_mask_path, allow_pickle=False),
+                dtype=bool,
+            )
+            if external_mask.shape != brain_mask.shape:
+                raise ValueError(
+                    "External and HDF5 brain masks have different shapes:\n"
+                    f"  external: {external_mask.shape}\n"
+                    f"  HDF5:     {brain_mask.shape}\n"
+                    f"  subject:  {subject_dir}"
+                )
+            if not np.array_equal(external_mask, brain_mask):
+                raise ValueError(
+                    "External and HDF5 brain masks are not identical:\n"
+                    f"  subject: {subject_dir}"
+                )
+
+    return water_fids, brain_mask
+
+
+def load_subject_scaling_calibration_data(
+    subject_dir: str | Path,
+    *,
+    original_relative_path: str | Path = "OriginalData/data.npy",
+    after_walinet_relative_path: str | Path = (
+        "OriginalData/data_after_walinet.npy"
+    ),
+    resource_relative_path: str | Path = (
+        "TrainData/SimulationResources_water_lipid_v1.h5"
+    ),
+    mmap_mode: str | None = "r",
+    verify_external_mask: bool = True,
+) -> ScalingCalibrationSubjectData:
+    """Load and validate all aligned inputs for one scaling-calibration subject."""
+    subject_dir = Path(subject_dir).expanduser().resolve()
+
+    full_fids = _load_complex_fid_volume(
+        subject_dir / original_relative_path,
+        description="Original full FID volume",
+        mmap_mode=mmap_mode,
+    )
+    after_walinet_fids = load_subject_after_walinet_fids(
+        subject_dir,
+        relative_path=after_walinet_relative_path,
+        mmap_mode=mmap_mode,
+    )
+    water_fids, brain_mask = load_subject_simulation_water_fids(
+        subject_dir,
+        resource_relative_path=resource_relative_path,
+        verify_external_mask=verify_external_mask,
+    )
+
+    if after_walinet_fids.shape != full_fids.shape:
+        raise ValueError(
+            "Original and WALINET FID volumes have different shapes:\n"
+            f"  subject:        {subject_dir}\n"
+            f"  original:       {full_fids.shape}\n"
+            f"  after WALINET:  {after_walinet_fids.shape}"
+        )
+
+    if water_fids.shape != full_fids.shape:
+        raise ValueError(
+            "Original and water FID volumes have different shapes:\n"
+            f"  subject:  {subject_dir}\n"
+            f"  original: {full_fids.shape}\n"
+            f"  water:    {water_fids.shape}"
+        )
+
+    if brain_mask.shape != full_fids.shape[:-1]:
+        raise ValueError(
+            "Brain mask does not match the FID spatial shape:\n"
+            f"  subject: {subject_dir}\n"
+            f"  FIDs:    {full_fids.shape}\n"
+            f"  mask:    {brain_mask.shape}"
+        )
+
+    return ScalingCalibrationSubjectData(
+        subject_dir=subject_dir,
+        full_fids=full_fids,
+        after_walinet_fids=after_walinet_fids,
+        water_fids=water_fids,
+        brain_mask=brain_mask,
+    )
+
+
+def load_scaling_calibration_subjects(
+    subject_dirs: Sequence[str | Path],
+    **loader_kwargs,
+) -> list[ScalingCalibrationSubjectData]:
+    """Load subjects independently without stacking their spatial dimensions."""
+    subject_dirs = list(subject_dirs)
+
+    if not subject_dirs:
+        raise ValueError("subject_dirs must contain at least one subject.")
+
+    subjects = [
+        load_subject_scaling_calibration_data(
+            subject_dir,
+            **loader_kwargs,
+        )
+        for subject_dir in subject_dirs
+    ]
+
+    for subject in subjects:
+        print(
+            f"Loaded {subject.subject_dir}: "
+            f"FIDs {subject.full_fids.shape}, "
+            f"brain voxels {int(subject.brain_mask.sum())}"
+        )
+
+    return subjects
 
 from collections.abc import Sequence
 from pathlib import Path

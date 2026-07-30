@@ -1,5 +1,5 @@
 run:
-  name: "3T_New_WALI_2"
+  name: "3T_Final_16_Channels"
   seed: 42
   gpu: 2
 

@@ -1,7 +1,7 @@
 run:
   name: "7T_New_WALI_2.1"
   seed: 42
-  gpu: 3
+  gpu: 0
 
 data:
   base_dir: "../../data/7T/B0corrected_wo_LipidMask"

@@ -180,12 +180,12 @@ water:
       type: "positive_mixture"
 
       normal:
-        mean: 32.4
-        std: 36.8
+        mean: 22.1
+        std: 26.1
 
       lognormal:
-        log_mu: 3.48
-        log_sigma: 1.1
+        log_mu: 3.1
+        log_sigma: 1.23
 
       minimum: 0.0
 
@@ -204,12 +204,12 @@ lipids:
       type: "positive_mixture"
 
       normal:
-        mean: 2.36
-        std: 6.65
+        mean: 2.99
+        std: 6.37
 
       lognormal:
-        log_mu: 0.857
-        log_sigma: 2.21
+        log_mu: 1.1
+        log_sigma: 1.82
 
       minimum: 0.0
 
