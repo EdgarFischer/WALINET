@@ -20,8 +20,8 @@ output:
   overwrite: false
 
 training:
-  batch_size: 2000
-  epochs: 400
+  batch_size: 1500
+  epochs: 533
 
   # Number of newly simulated training batches per epoch.
   n_batches: 300
@@ -37,10 +37,10 @@ validation:
   batch_size: 3300
 
 optim:
-  lr: 0.0004
+  lr: 0.0002
 
 scheduler:
-  milestones: [50, 100, 150, 200, 250]
+  milestones: [50, 100, 150, 200]
   gamma: 0.5
 
 model:
