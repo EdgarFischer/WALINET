@@ -1,66 +1,12 @@
 from pathlib import Path
 import os
 
-import h5py
 import numpy as np
 import nibabel as nib
 from nibabel.processing import resample_from_to
 import matplotlib.pyplot as plt
-from scipy.io import loadmat
 
-
-def _to_complex_array(raw):
-    """
-    Converts either a structured real/imag array or an already-complex
-    MATLAB array into a NumPy complex array.
-    """
-    raw = np.asarray(raw)
-
-    if raw.dtype.names is not None and {"real", "imag"}.issubset(raw.dtype.names):
-        return raw["real"] + 1j * raw["imag"]
-
-    return raw
-
-
-def load_combined_csi(mat_path):
-    """
-    First tries HDF5 / MATLAB v7.3 loading via h5py.
-    If that fails, falls back to scipy.io.loadmat for classic MATLAB files.
-    """
-    mat_path = Path(mat_path)
-
-    try:
-        with h5py.File(mat_path, "r") as f:
-            raw = f["csi"]["Data"][:]
-            data = _to_complex_array(raw)
-            mask = f["mask"][:]
-
-        print("  Loaded CombinedCSI.mat via h5py")
-        return data, mask
-
-    except OSError:
-        print("  h5py failed; loading CombinedCSI.mat via scipy.io.loadmat")
-
-        mat = loadmat(
-            mat_path,
-            squeeze_me=True,
-            struct_as_record=False,
-        )
-
-        csi = mat["csi"]
-
-        # Typical scipy representation of a MATLAB struct
-        if hasattr(csi, "Data"):
-            raw = csi.Data
-        else:
-            # Fallback in case scipy returns a structured NumPy array
-            raw = csi["Data"]
-
-        data = _to_complex_array(raw)
-        mask = mat["mask"]
-
-        return data, mask
-
+from walinet.data.combined_csi_io import load_combined_csi
 
 def load_magnitude_downsampled(maps_folder):
     maps_folder = Path(maps_folder)

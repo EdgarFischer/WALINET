@@ -6,11 +6,18 @@ import numpy as np
 import torch
 import yaml
 
+from walinet.data.combined_csi_io import (
+    load_combined_csi,
+    save_combined_csi,
+)
 from walinet.inference.inference import (
     _load_checkpoint_state_dict,
     _load_model_and_params,
     _resolve_normalization,
 )
+
+
+PathLike = Union[str, Path]
 
 
 @dataclass(frozen=True)
@@ -33,7 +40,9 @@ class AcquisitionInfo:
             )
 
 
-def _load_acquisition_info(model_dir: Path) -> AcquisitionInfo | None:
+def _load_acquisition_info(
+    model_dir: Path,
+) -> AcquisitionInfo | None:
     """Read acquisition lengths, or return None for older models."""
     configs_dir = model_dir / "configs"
     candidates = []
@@ -49,6 +58,7 @@ def _load_acquisition_info(model_dir: Path) -> AcquisitionInfo | None:
             if isinstance(config, dict)
             else None
         )
+
         if not isinstance(acquisition, dict):
             continue
 
@@ -57,6 +67,7 @@ def _load_acquisition_info(model_dir: Path) -> AcquisitionInfo | None:
             "min_acquired_n_timepoints",
             "max_acquired_n_timepoints",
         }
+
         if required.issubset(acquisition):
             candidates.append((path, acquisition))
 
@@ -68,19 +79,29 @@ def _load_acquisition_info(model_dir: Path) -> AcquisitionInfo | None:
         return None
 
     if len(candidates) > 1:
-        paths = "\n".join(f"  {path}" for path, _ in candidates)
+        paths = "\n".join(
+            f"  {path}"
+            for path, _ in candidates
+        )
         raise ValueError(
             "Multiple saved simulation configs contain acquisition lengths:\n"
             f"{paths}"
         )
 
     _, acquisition = candidates[0]
+
     return AcquisitionInfo(
         n_timepoints=int(acquisition["n_timepoints"]),
-        min_n_timepoints=int(acquisition["min_acquired_n_timepoints"]),
-        max_n_timepoints=int(acquisition["max_acquired_n_timepoints"]),
+        min_n_timepoints=int(
+            acquisition["min_acquired_n_timepoints"]
+        ),
+        max_n_timepoints=int(
+            acquisition["max_acquired_n_timepoints"]
+        ),
         # This is also the default used by the simulation config loader.
-        zero_filling=bool(acquisition.get("zero_filling", True)),
+        zero_filling=bool(
+            acquisition.get("zero_filling", True)
+        ),
     )
 
 
@@ -98,7 +119,10 @@ def _prepare_fid_length(
         target_length = acquisition.n_timepoints
     else:
         target_length = min(
-            max(input_length, acquisition.min_n_timepoints),
+            max(
+                input_length,
+                acquisition.min_n_timepoints,
+            ),
             acquisition.max_n_timepoints,
         )
 
@@ -114,20 +138,42 @@ def _prepare_fid_length(
             f"[infer_fid] Zero-filling FID length from {input_length} "
             f"to {target_length}."
         )
+
         padding = [(0, 0)] * fid.ndim
-        padding[-1] = (0, target_length - input_length)
-        return np.pad(fid, padding, mode="constant")
+        padding[-1] = (
+            0,
+            target_length - input_length,
+        )
+
+        return np.pad(
+            fid,
+            padding,
+            mode="constant",
+        )
 
     return fid
 
 
-def _fid_to_spectrum(fid: np.ndarray) -> np.ndarray:
-    return np.fft.fftshift(np.fft.fft(fid, axis=-1), axes=-1)
+def _fid_to_spectrum(
+    fid: np.ndarray,
+) -> np.ndarray:
+    return np.fft.fftshift(
+        np.fft.fft(
+            fid,
+            axis=-1,
+        ),
+        axes=-1,
+    )
 
 
-def _spectrum_to_fid(spectrum: np.ndarray) -> np.ndarray:
+def _spectrum_to_fid(
+    spectrum: np.ndarray,
+) -> np.ndarray:
     return np.fft.ifft(
-        np.fft.ifftshift(spectrum, axes=-1),
+        np.fft.ifftshift(
+            spectrum,
+            axes=-1,
+        ),
         axis=-1,
     )
 
@@ -141,48 +187,106 @@ def _infer_spectra(
     headmask: np.ndarray | None,
     eps: float,
 ) -> np.ndarray:
-    """Run max-abs-normalized U-Net inference on fft-shifted spectra."""
+    """Run max-abs-normalized U-Net inference on FFT-shifted spectra."""
     spatial_shape = spectra.shape[:-1]
     n_timepoints = spectra.shape[-1]
     flat = spectra.reshape(-1, n_timepoints)
 
     if headmask is None:
         selected = np.arange(flat.shape[0])
+
     else:
         headmask = np.asarray(headmask)
+
         if headmask.shape != spatial_shape:
             raise ValueError(
-                f"headmask has shape {headmask.shape}, expected {spatial_shape}."
+                f"headmask has shape {headmask.shape}, "
+                f"expected {spatial_shape}."
             )
-        selected = np.flatnonzero(headmask.reshape(-1) > 0)
+
+        selected = np.flatnonzero(
+            headmask.reshape(-1) > 0
+        )
 
     selected_spectra = flat[selected]
-    valid = np.isfinite(selected_spectra).all(axis=1)
+
+    valid = np.isfinite(
+        selected_spectra
+    ).all(axis=1)
+
     valid_indices = selected[valid]
     selected_spectra = selected_spectra[valid]
 
-    clean = np.zeros(flat.shape, dtype=np.complex64)
+    clean = np.zeros(
+        flat.shape,
+        dtype=np.complex64,
+    )
+
     model.to(device).eval()
 
     with torch.no_grad():
-        for start in range(0, len(selected_spectra), batch_size):
-            batch_np = selected_spectra[start : start + batch_size]
-            batch = torch.as_tensor(batch_np, dtype=torch.cfloat, device=device)
-            norm = torch.amax(torch.abs(batch), dim=1, keepdim=True)
-            norm = torch.clamp(norm, min=eps)
-            normalized = batch / norm
-            network_input = torch.stack(
-                (normalized.real, normalized.imag),
-                dim=1,
-            )
-            output = model(network_input)[:, :2, :]
-            nuisance = torch.complex(output[:, 0, :], output[:, 1, :]) * norm
-            clean_batch = batch - nuisance
-            clean[valid_indices[start : start + batch_size]] = (
-                clean_batch.cpu().numpy().astype(np.complex64)
+        for start in range(
+            0,
+            len(selected_spectra),
+            batch_size,
+        ):
+            batch_np = selected_spectra[
+                start : start + batch_size
+            ]
+
+            batch = torch.as_tensor(
+                batch_np,
+                dtype=torch.cfloat,
+                device=device,
             )
 
-    return clean.reshape(*spatial_shape, n_timepoints)
+            norm = torch.amax(
+                torch.abs(batch),
+                dim=1,
+                keepdim=True,
+            )
+
+            norm = torch.clamp(
+                norm,
+                min=eps,
+            )
+
+            normalized = batch / norm
+
+            network_input = torch.stack(
+                (
+                    normalized.real,
+                    normalized.imag,
+                ),
+                dim=1,
+            )
+
+            output = model(
+                network_input
+            )[:, :2, :]
+
+            nuisance = torch.complex(
+                output[:, 0, :],
+                output[:, 1, :],
+            ) * norm
+
+            clean_batch = batch - nuisance
+
+            clean[
+                valid_indices[
+                    start : start + batch_size
+                ]
+            ] = (
+                clean_batch
+                .cpu()
+                .numpy()
+                .astype(np.complex64)
+            )
+
+    return clean.reshape(
+        *spatial_shape,
+        n_timepoints,
+    )
 
 
 def infer_fid(
@@ -200,78 +304,201 @@ def infer_fid(
     """Remove nuisance signals from complex FIDs with a trained U-Net.
 
     ``fid`` and ``headmask`` may be NumPy arrays or paths to ``.npy`` files.
+
+    If ``fid_axis="auto"``, the longest input axis is interpreted as the
+    FID axis.
     """
     if isinstance(fid, (str, Path)):
-        fid_path = Path(fid).expanduser()
+        fid_path = Path(
+            fid
+        ).expanduser()
+
         if fid_path.suffix.lower() != ".npy":
-            raise ValueError("Only .npy FID input is currently supported.")
-        fid = np.load(fid_path)
+            raise ValueError(
+                "Only .npy FID input is currently supported by infer_fid(). "
+                "Use infer_combined_csi() for CombinedCSI.mat files."
+            )
+
+        fid = np.load(
+            fid_path,
+            allow_pickle=False,
+        )
+
     if not isinstance(fid, np.ndarray):
-        raise TypeError("fid must be a numpy.ndarray or a path to a .npy file.")
+        raise TypeError(
+            "fid must be a numpy.ndarray or a path to a .npy file."
+        )
+
     if fid.ndim == 0:
-        raise ValueError("fid must have at least one dimension.")
-    if not np.issubdtype(fid.dtype, np.number):
-        raise TypeError("fid must contain numeric values.")
+        raise ValueError(
+            "fid must have at least one dimension."
+        )
+
+    if not np.issubdtype(
+        fid.dtype,
+        np.number,
+    ):
+        raise TypeError(
+            "fid must contain numeric values."
+        )
+
     if batch_size <= 0:
-        raise ValueError("batch_size must be > 0.")
+        raise ValueError(
+            "batch_size must be > 0."
+        )
 
     if isinstance(headmask, (str, Path)):
-        headmask_path = Path(headmask).expanduser()
+        headmask_path = Path(
+            headmask
+        ).expanduser()
+
         if headmask_path.suffix.lower() != ".npy":
-            raise ValueError("Only .npy headmask input is currently supported.")
-        headmask = np.load(headmask_path)
-    if headmask is not None and not isinstance(headmask, np.ndarray):
+            raise ValueError(
+                "Only .npy headmask input is currently supported."
+            )
+
+        headmask = np.load(
+            headmask_path,
+            allow_pickle=False,
+        )
+
+    if (
+        headmask is not None
+        and not isinstance(headmask, np.ndarray)
+    ):
         raise TypeError(
-            "headmask must be a numpy.ndarray, a path to a .npy file, or None."
+            "headmask must be a numpy.ndarray, "
+            "a path to a .npy file, or None."
         )
 
     if fid_axis == "auto":
-        original_axis = int(np.argmax(fid.shape))
-    elif isinstance(fid_axis, (int, np.integer)):
+        original_axis = int(
+            np.argmax(fid.shape)
+        )
+
+        print(
+            f"[infer_fid] Automatically detected FID axis "
+            f"{original_axis} with length {fid.shape[original_axis]}."
+        )
+
+    elif isinstance(
+        fid_axis,
+        (int, np.integer),
+    ):
         original_axis = int(fid_axis)
+
         if original_axis < 0:
             original_axis += fid.ndim
+
         if not 0 <= original_axis < fid.ndim:
-            raise np.AxisError(fid_axis, ndim=fid.ndim)
+            raise np.AxisError(
+                fid_axis,
+                ndim=fid.ndim,
+            )
+
     else:
-        raise TypeError("fid_axis must be 'auto' or an integer.")
+        raise TypeError(
+            "fid_axis must be 'auto' or an integer."
+        )
 
-    model_dir = Path(model_dir).expanduser().resolve()
-    model_cls, params, architecture, loaded_dir = _load_model_and_params(
-        exp=model_dir.name,
-        model_root=model_dir.parent,
-        architecture="auto",
+    model_dir = Path(
+        model_dir
+    ).expanduser().resolve()
+
+    model_cls, params, architecture, loaded_dir = (
+        _load_model_and_params(
+            exp=model_dir.name,
+            model_root=model_dir.parent,
+            architecture="auto",
+        )
     )
-    normalization = _resolve_normalization(params, "auto")
 
-    if architecture != "unet" or normalization != "max_abs":
+    normalization = _resolve_normalization(
+        params,
+        "auto",
+    )
+
+    if (
+        architecture != "unet"
+        or normalization != "max_abs"
+    ):
         raise ValueError(
             "infer_fid currently supports operator-free U-Nets with "
             "max_abs normalization only; found "
-            f"architecture={architecture!r}, normalization={normalization!r}."
+            f"architecture={architecture!r}, "
+            f"normalization={normalization!r}."
         )
 
-    acquisition = _load_acquisition_info(loaded_dir)
-    prepared = np.moveaxis(np.asarray(fid, dtype=np.complex64), original_axis, -1)
-    prepared = _prepare_fid_length(prepared, acquisition)
-    spectra = _fid_to_spectrum(prepared)
+    acquisition = _load_acquisition_info(
+        loaded_dir
+    )
+
+    prepared = np.moveaxis(
+        np.asarray(
+            fid,
+            dtype=np.complex64,
+        ),
+        original_axis,
+        -1,
+    )
+
+    prepared = _prepare_fid_length(
+        prepared,
+        acquisition,
+    )
+
+    spectra = _fid_to_spectrum(
+        prepared
+    )
 
     if device is None:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = torch.device(
+            "cuda:0"
+            if torch.cuda.is_available()
+            else "cpu"
+        )
+
     else:
-        device = torch.device(device)
+        device = torch.device(
+            device
+        )
 
     model = model_cls(
-        nLayers=int(params["nLayers"]),
-        nFilters=int(params["nFilters"]),
-        dropout=float(params.get("dropout", 0.0)),
-        in_channels=int(params["in_channels"]),
-        out_channels=int(params["out_channels"]),
+        nLayers=int(
+            params["nLayers"]
+        ),
+        nFilters=int(
+            params["nFilters"]
+        ),
+        dropout=float(
+            params.get(
+                "dropout",
+                0.0,
+            )
+        ),
+        in_channels=int(
+            params["in_channels"]
+        ),
+        out_channels=int(
+            params["out_channels"]
+        ),
     )
-    checkpoint_path = loaded_dir / checkpoint
+
+    checkpoint_path = (
+        loaded_dir / checkpoint
+    )
+
     if not checkpoint_path.is_file():
-        raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
-    model.load_state_dict(_load_checkpoint_state_dict(checkpoint_path, device))
+        raise FileNotFoundError(
+            f"Checkpoint does not exist: {checkpoint_path}"
+        )
+
+    model.load_state_dict(
+        _load_checkpoint_state_dict(
+            checkpoint_path,
+            device,
+        )
+    )
 
     clean_spectra = _infer_spectra(
         spectra,
@@ -281,13 +508,181 @@ def infer_fid(
         headmask=headmask,
         eps=eps,
     )
-    clean_fid = _spectrum_to_fid(clean_spectra)
-    clean_fid = np.moveaxis(clean_fid, -1, original_axis)
+
+    clean_fid = _spectrum_to_fid(
+        clean_spectra
+    )
+
+    clean_fid = np.moveaxis(
+        clean_fid,
+        -1,
+        original_axis,
+    )
+
+    clean_fid = np.asarray(
+        clean_fid,
+        dtype=np.complex64,
+    )
 
     if output_path is not None:
-        output_path = Path(output_path)
+        output_path = Path(
+            output_path
+        ).expanduser()
+
         if output_path.suffix.lower() != ".npy":
-            raise ValueError("Only .npy output is currently supported.")
-        np.save(output_path, clean_fid)
+            raise ValueError(
+                "Only .npy output is supported by infer_fid(). "
+                "Use infer_combined_csi() to write a CombinedCSI.mat file."
+            )
+
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        np.save(
+            output_path,
+            clean_fid,
+        )
+
+        print(
+            f"[infer_fid] Saved cleaned FID: {output_path}"
+        )
 
     return clean_fid
+
+
+def infer_combined_csi(
+    input_path: PathLike,
+    model_dir: PathLike,
+    output_path: PathLike,
+    *,
+    fid_axis: Union[int, str] = "auto",
+    checkpoint: str = "model_best.pt",
+    batch_size: int = 200,
+    device: Union[str, torch.device, None] = None,
+    eps: float = 1e-8,
+) -> Path:
+    """Run WALINET on csi.Data and save a complete CombinedCSI.mat copy.
+
+    The input file is loaded using ``load_combined_csi()``. WALINET is applied
+    to ``csi.Data`` using the embedded ``mask``. The output file retains all
+    original fields, while only ``csi.Data`` is replaced by the cleaned FID.
+
+    If ``fid_axis="auto"``, the longest axis of ``csi.Data`` is interpreted
+    as the FID axis.
+    """
+    input_path = Path(
+        input_path
+    ).expanduser().resolve()
+
+    output_path = Path(
+        output_path
+    ).expanduser().resolve()
+
+    if input_path.suffix.lower() != ".mat":
+        raise ValueError(
+            f"input_path must point to a .mat file: {input_path}"
+        )
+
+    if output_path.suffix.lower() != ".mat":
+        raise ValueError(
+            f"output_path must end in .mat: {output_path}"
+        )
+
+    if not input_path.is_file():
+        raise FileNotFoundError(
+            f"CombinedCSI.mat does not exist: {input_path}"
+        )
+
+    print(
+        f"[infer_combined_csi] Loading: {input_path}"
+    )
+
+    fid, mask = load_combined_csi(
+        input_path
+    )
+
+    fid = np.asarray(fid)
+    mask = np.asarray(mask)
+
+    print(
+        f"[infer_combined_csi] csi.Data shape: {fid.shape}"
+    )
+    print(
+        f"[infer_combined_csi] mask shape: {mask.shape}"
+    )
+
+    if fid_axis == "auto":
+        resolved_fid_axis = int(
+            np.argmax(fid.shape)
+        )
+
+    elif isinstance(
+        fid_axis,
+        (int, np.integer),
+    ):
+        resolved_fid_axis = int(
+            fid_axis
+        )
+
+        if resolved_fid_axis < 0:
+            resolved_fid_axis += fid.ndim
+
+        if not 0 <= resolved_fid_axis < fid.ndim:
+            raise np.AxisError(
+                fid_axis,
+                ndim=fid.ndim,
+            )
+
+    else:
+        raise TypeError(
+            "fid_axis must be 'auto' or an integer."
+        )
+
+    expected_mask_shape = (
+        fid.shape[:resolved_fid_axis]
+        + fid.shape[resolved_fid_axis + 1 :]
+    )
+
+    if mask.shape != expected_mask_shape:
+        raise ValueError(
+            f"CombinedCSI mask has shape {mask.shape}, but csi.Data "
+            f"with FID axis {resolved_fid_axis} requires "
+            f"mask shape {expected_mask_shape}."
+        )
+
+    print(
+        f"[infer_combined_csi] Running WALINET with FID axis "
+        f"{resolved_fid_axis}."
+    )
+
+    cleaned_fid = infer_fid(
+        fid=fid,
+        model_dir=model_dir,
+        output_path=None,
+        fid_axis=resolved_fid_axis,
+        headmask=mask,
+        checkpoint=checkpoint,
+        batch_size=batch_size,
+        device=device,
+        eps=eps,
+    )
+
+    print(
+        f"[infer_combined_csi] Cleaned csi.Data shape: "
+        f"{cleaned_fid.shape}"
+    )
+
+    saved_path = save_combined_csi(
+        input_path=input_path,
+        output_path=output_path,
+        data=cleaned_fid,
+    )
+
+    print(
+        f"[infer_combined_csi] Saved WALINET output: "
+        f"{saved_path}"
+    )
+
+    return saved_path

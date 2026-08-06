@@ -3,7 +3,17 @@ version: "water_lipid_v1"
 data:
   base_dir: "../../data/7T/B0corrected_wo_LipidMask"
 
-  subjects: ["Vol1_Brisbane", "Vol3_Brisbane", "Vol4_Brisbane", "Vol5_Brisbane", "Vol6_Brisbane", "Vol1_London", "Vol2_London", "Vol3_London", "Vol4_London", "Vol5_London", "Vol5", "Vol6", "Vol7", "Vol8", "Vol9"]
+  subjects: [
+    "MS_180", 
+    "MS_200", 
+    "MS_210", 
+    "MS_230",
+    "MS_260",
+    "MS_280",
+    "MS_320",
+    "MS_340",
+    "MS_400",
+    "MS_430"]
 
   paths:
     brain_mask: "masks/brain_mask.npy"
@@ -30,7 +40,7 @@ resources:
 
 lipid_projection:
   enabled: true
-  n_timepoints: [558, 840]
+  n_timepoints: [558]
   target: 0.938
   tol: 0.005
   max_iter: 60

@@ -2,7 +2,7 @@ run:
   seed: 42
 
 data:
-  base_dir: "../data/7T/NoB0Correction"
+  base_dir: "../data/7T/B0corrected_wo_LipidMask"
   subjects: [
     "MS_180", 
     "MS_200", 
