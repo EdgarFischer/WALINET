@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
 from typing import Union
 
 import numpy as np
@@ -15,6 +16,7 @@ from walinet.inference.inference import (
     _load_model_and_params,
     _resolve_normalization,
 )
+from walinet.preprocessing.b0_correction import correct_b0
 
 
 PathLike = Union[str, Path]
@@ -562,12 +564,23 @@ def infer_combined_csi(
     batch_size: int = 200,
     device: Union[str, torch.device, None] = None,
     eps: float = 1e-8,
+    b0_correction: bool = False,
+    dat_path: PathLike | None = None,
+    julia_executable: PathLike = "julia",
+    julia_project: PathLike | None = None,
+    shm_dir: PathLike = "/dev/shm",
 ) -> Path:
     """Run WALINET on csi.Data and save a complete CombinedCSI.mat copy.
 
-    The input file is loaded using ``load_combined_csi()``. WALINET is applied
-    to ``csi.Data`` using the embedded ``mask``. The output file retains all
-    original fields, while only ``csi.Data`` is replaced by the cleaned FID.
+    Without B0 correction, the input file is loaded using
+    ``load_combined_csi()``. With ``b0_correction=True``, the same Julia/MRSI.jl
+    correction used by the WALINET-to-forD pipeline is applied first. WALINET
+    then receives ``data_B0corrected.npy`` and ``brain_mask.npy`` directly from
+    that correction step.
+
+    The output file always retains all fields from the original CombinedCSI,
+    while only ``csi.Data`` is replaced by the B0-corrected and WALINET-cleaned
+    FID. ``dat_path`` may override ``Par.Paths.csi_path`` for B0 correction.
 
     If ``fid_axis="auto"``, the longest axis of ``csi.Data`` is interpreted
     as the FID axis.
@@ -595,14 +608,93 @@ def infer_combined_csi(
             f"CombinedCSI.mat does not exist: {input_path}"
         )
 
+    if dat_path is not None and not b0_correction:
+        raise ValueError(
+            "dat_path is only meaningful when b0_correction=True."
+        )
+
+    if b0_correction:
+        shm_dir = Path(shm_dir).expanduser().resolve()
+        if not shm_dir.is_dir():
+            raise FileNotFoundError(
+                f"Temporary directory does not exist: {shm_dir}"
+            )
+
+        print(
+            f"[infer_combined_csi] Applying B0 correction: {input_path}"
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="walinet_combined_csi_",
+            dir=shm_dir,
+        ) as temporary_directory:
+            corrected_path, b0_path, mask_path = correct_b0(
+                combined_csi_path=input_path,
+                output_dir=temporary_directory,
+                dat_path=dat_path,
+                julia_executable=julia_executable,
+                julia_project=julia_project,
+            )
+
+            fid = np.load(corrected_path, allow_pickle=False)
+            mask = np.load(mask_path, allow_pickle=False)
+
+            print(
+                f"[infer_combined_csi] B0 map: {b0_path}"
+            )
+
+            saved_path = _infer_and_save_combined_csi(
+                input_path=input_path,
+                output_path=output_path,
+                fid=fid,
+                mask=mask,
+                model_dir=model_dir,
+                fid_axis=fid_axis,
+                checkpoint=checkpoint,
+                batch_size=batch_size,
+                device=device,
+                eps=eps,
+                replace_mask=True,
+            )
+
+        return saved_path
+
     print(
-        f"[infer_combined_csi] Loading: {input_path}"
+        f"[infer_combined_csi] Loading without B0 correction: {input_path}"
     )
 
-    fid, mask = load_combined_csi(
-        input_path
+    fid, mask = load_combined_csi(input_path)
+
+    return _infer_and_save_combined_csi(
+        input_path=input_path,
+        output_path=output_path,
+        fid=fid,
+        mask=mask,
+        model_dir=model_dir,
+        fid_axis=fid_axis,
+        checkpoint=checkpoint,
+        batch_size=batch_size,
+        device=device,
+        eps=eps,
+        replace_mask=False,
     )
 
+
+def _infer_and_save_combined_csi(
+    *,
+    input_path: Path,
+    output_path: Path,
+    fid: np.ndarray,
+    mask: np.ndarray,
+    model_dir: PathLike,
+    fid_axis: Union[int, str],
+    checkpoint: str,
+    batch_size: int,
+    device: Union[str, torch.device, None],
+    eps: float,
+    replace_mask: bool,
+) -> Path:
+    """Validate prepared CombinedCSI arrays, infer, and save the MAT copy."""
     fid = np.asarray(fid)
     mask = np.asarray(mask)
 
@@ -678,6 +770,7 @@ def infer_combined_csi(
         input_path=input_path,
         output_path=output_path,
         data=cleaned_fid,
+        mask=mask if replace_mask else None,
     )
 
     print(

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Union
@@ -253,6 +254,42 @@ def run_walinet_ford_pipeline(
             temporary_directory
             / "data_WALINET.npy"
         )
+
+        # forD's diagnostics look for ``magnitude.npy`` beside the configured
+        # data_path. Since the fitted WALINET data live temporarily in RAM,
+        # mirror the anatomical magnitude from beside the original input into
+        # that same temporary directory. This affects diagnostic plots only.
+        source_magnitude_path = data_path.parent / "magnitude.npy"
+        ford_magnitude_path = temporary_directory / "magnitude.npy"
+
+        if source_magnitude_path.is_file():
+            # Fail early on a corrupt/non-NumPy file instead of copying it and
+            # producing a less informative error at the end of the fit.
+            magnitude = np.load(
+                source_magnitude_path,
+                mmap_mode="r",
+                allow_pickle=False,
+            )
+            magnitude_shape = tuple(magnitude.shape)
+            del magnitude
+
+            shutil.copyfile(
+                source_magnitude_path,
+                ford_magnitude_path,
+            )
+
+            print(
+                f"[pipeline] Mirrored diagnostic magnitude to RAM: "
+                f"{source_magnitude_path} -> {ford_magnitude_path} "
+                f"(shape {magnitude_shape})",
+                flush=True,
+            )
+        else:
+            print(
+                f"[pipeline] No diagnostic magnitude found beside input: "
+                f"{source_magnitude_path}",
+                flush=True,
+            )
 
         # pipeline_mask_path is already a .npy file in /dev/shm.
         ford_mask_path = pipeline_mask_path

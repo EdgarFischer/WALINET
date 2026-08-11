@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 import torch
 
 from walinet.inference import fid_inference
@@ -125,3 +126,70 @@ def test_infer_fid_accepts_numpy_paths_and_saves_output(tmp_path, monkeypatch):
 
     np.testing.assert_allclose(result, fid, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(np.load(output_path), fid, rtol=1e-6, atol=1e-6)
+
+
+def test_infer_combined_csi_can_apply_b0_correction(tmp_path, monkeypatch):
+    input_path = tmp_path / "CombinedCSI.mat"
+    output_path = tmp_path / "CombinedCSI_WALINET.mat"
+    input_path.touch()
+
+    corrected = np.ones((2, 3, 8), dtype=np.complex64) * (2 + 3j)
+    mask = np.ones((2, 3), dtype=bool)
+    calls = {}
+
+    def fake_correct_b0(**kwargs):
+        calls["correct_b0"] = kwargs
+        output_dir = Path(kwargs["output_dir"])
+        corrected_path = output_dir / "data_B0corrected.npy"
+        b0_path = output_dir / "B0_estimation.npy"
+        mask_path = output_dir / "brain_mask.npy"
+        np.save(corrected_path, corrected)
+        np.save(b0_path, np.zeros(mask.shape, dtype=np.float32))
+        np.save(mask_path, mask)
+        return corrected_path, b0_path, mask_path
+
+    def fake_infer_and_save(**kwargs):
+        calls["prepared"] = kwargs
+        assert Path(calls["correct_b0"]["output_dir"]).is_dir()
+        return output_path
+
+    monkeypatch.setattr(fid_inference, "correct_b0", fake_correct_b0)
+    monkeypatch.setattr(
+        fid_inference,
+        "_infer_and_save_combined_csi",
+        fake_infer_and_save,
+    )
+
+    result = fid_inference.infer_combined_csi(
+        input_path=input_path,
+        model_dir=tmp_path / "model",
+        output_path=output_path,
+        b0_correction=True,
+        dat_path=tmp_path / "raw.dat",
+        julia_executable="custom-julia",
+        julia_project=tmp_path / "julia-project",
+        shm_dir=tmp_path,
+    )
+
+    assert result == output_path
+    np.testing.assert_array_equal(calls["prepared"]["fid"], corrected)
+    np.testing.assert_array_equal(calls["prepared"]["mask"], mask)
+    assert calls["correct_b0"]["combined_csi_path"] == input_path
+    assert calls["correct_b0"]["dat_path"] == tmp_path / "raw.dat"
+    assert calls["correct_b0"]["julia_executable"] == "custom-julia"
+
+
+def test_infer_combined_csi_rejects_dat_path_without_b0(tmp_path):
+    input_path = tmp_path / "CombinedCSI.mat"
+    input_path.touch()
+
+    with np.testing.assert_raises_regex(
+        ValueError,
+        "b0_correction=True",
+    ):
+        fid_inference.infer_combined_csi(
+            input_path=input_path,
+            model_dir=tmp_path / "model",
+            output_path=tmp_path / "output.mat",
+            dat_path=tmp_path / "raw.dat",
+        )

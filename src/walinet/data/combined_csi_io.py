@@ -42,8 +42,10 @@ def load_combined_csi(
     try:
         with h5py.File(mat_path, "r") as file:
             raw = file["csi"]["Data"][:]
-            data = _to_complex_array(raw)
-            mask = file["mask"][:]
+            # MATLAB v7.3 stores array dimensions in reverse HDF5 order.
+            # Present the same logical axis order as MATLAB and scipy.loadmat.
+            data = _reverse_axes(_to_complex_array(raw))
+            mask = _reverse_axes(file["mask"][:])
 
         print("  Loaded CombinedCSI.mat via h5py")
         return data, mask
@@ -74,11 +76,13 @@ def save_combined_csi(
     input_path: PathLike,
     output_path: PathLike,
     data: np.ndarray,
+    mask: np.ndarray | None = None,
 ) -> Path:
     """
-    Copy a CombinedCSI.mat file and replace only csi.Data.
+    Copy a CombinedCSI.mat file and replace csi.Data and, optionally, mask.
 
-    All other fields and variables are retained.
+    If ``mask`` is None, the original mask is retained. All other fields and
+    variables are always retained.
 
     MATLAB v7.3 files are copied and modified using h5py.
     Classic MATLAB files are loaded and written again using scipy.io.
@@ -86,6 +90,8 @@ def save_combined_csi(
     input_path = Path(input_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
     data = np.asarray(data)
+    if mask is not None:
+        mask = np.asarray(mask)
 
     if not input_path.is_file():
         raise FileNotFoundError(
@@ -99,6 +105,7 @@ def save_combined_csi(
             input_path=input_path,
             output_path=output_path,
             data=data,
+            mask=mask,
         )
         print(f"  Saved CombinedCSI.mat via h5py: {output_path}")
 
@@ -107,6 +114,7 @@ def save_combined_csi(
             input_path=input_path,
             output_path=output_path,
             data=data,
+            mask=mask,
         )
         print(
             f"  Saved CombinedCSI.mat via scipy.io.savemat: "
@@ -116,13 +124,20 @@ def save_combined_csi(
     return output_path
 
 
+def _reverse_axes(array: np.ndarray) -> np.ndarray:
+    """Reverse all axes between MATLAB-v7.3 and raw HDF5 conventions."""
+    array = np.asarray(array)
+    return np.transpose(array, axes=tuple(range(array.ndim - 1, -1, -1)))
+
+
 def _save_hdf5_combined_csi(
     input_path: Path,
     output_path: Path,
     data: np.ndarray,
+    mask: np.ndarray | None,
 ) -> None:
     """
-    Copy a MATLAB v7.3 file and replace /csi/Data in the copy.
+    Copy a MATLAB v7.3 file and replace /csi/Data and, optionally, /mask.
     """
     if input_path != output_path:
         shutil.copy2(input_path, output_path)
@@ -130,36 +145,61 @@ def _save_hdf5_combined_csi(
     with h5py.File(output_path, "r+") as file:
         dataset = file["csi"]["Data"]
         stored_data = _encode_for_hdf5_dataset(
-            data=data,
+            # ``data`` uses logical MATLAB/NumPy order. Raw MATLAB-v7.3 HDF5
+            # datasets store those dimensions in reverse order.
+            data=_reverse_axes(data),
             dtype=dataset.dtype,
         )
 
         if dataset.shape == stored_data.shape:
             dataset[...] = stored_data
-            return
+        else:
+            # The acquisition length may have changed through cropping or
+            # padding. Recreate only /csi/Data and preserve its attributes.
+            _replace_hdf5_dataset(dataset, stored_data, dtype=dataset.dtype)
 
-        # The acquisition length may have changed through cropping or padding.
-        # In that case, recreate only /csi/Data and preserve its attributes.
-        parent = dataset.parent
-        name = dataset.name.rsplit("/", 1)[-1]
-        attributes = dict(dataset.attrs.items())
+        if mask is not None:
+            mask_dataset = file["mask"]
+            stored_mask = np.asarray(
+                _reverse_axes(mask),
+                dtype=mask_dataset.dtype,
+            )
 
-        creation_options = _get_hdf5_creation_options(
-            dataset=dataset,
-            new_shape=stored_data.shape,
-        )
+            if mask_dataset.shape == stored_mask.shape:
+                mask_dataset[...] = stored_mask
+            else:
+                _replace_hdf5_dataset(
+                    mask_dataset,
+                    stored_mask,
+                    dtype=mask_dataset.dtype,
+                )
 
-        del parent[name]
 
-        new_dataset = parent.create_dataset(
-            name,
-            data=stored_data,
-            dtype=dataset.dtype,
-            **creation_options,
-        )
+def _replace_hdf5_dataset(
+    dataset: h5py.Dataset,
+    data: np.ndarray,
+    *,
+    dtype: np.dtype,
+) -> None:
+    """Recreate one HDF5 dataset while retaining attributes and storage."""
+    parent = dataset.parent
+    name = dataset.name.rsplit("/", 1)[-1]
+    attributes = dict(dataset.attrs.items())
+    creation_options = _get_hdf5_creation_options(
+        dataset=dataset,
+        new_shape=data.shape,
+    )
 
-        for key, value in attributes.items():
-            new_dataset.attrs[key] = value
+    del parent[name]
+    new_dataset = parent.create_dataset(
+        name,
+        data=data,
+        dtype=dtype,
+        **creation_options,
+    )
+
+    for key, value in attributes.items():
+        new_dataset.attrs[key] = value
 
 
 def _encode_for_hdf5_dataset(
@@ -241,6 +281,7 @@ def _save_classic_combined_csi(
     input_path: Path,
     output_path: Path,
     data: np.ndarray,
+    mask: np.ndarray | None,
 ) -> None:
     """
     Replace csi.Data in a classic, non-HDF5 MATLAB file.
@@ -269,6 +310,11 @@ def _save_classic_combined_csi(
         )
 
     csi["Data"].flat[0] = data
+
+    if mask is not None:
+        if "mask" not in mat:
+            raise KeyError("Could not find mask in the classic MATLAB file.")
+        mat["mask"] = mask
 
     # scipy metadata entries cannot be passed back to savemat.
     content = {
