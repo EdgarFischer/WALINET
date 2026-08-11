@@ -7,7 +7,9 @@ import numpy as np
 from walinet.inference import ford_pipeline
 
 
-def test_pipeline_passes_walinet_output_to_ford_in_memory(tmp_path, monkeypatch):
+def test_pipeline_passes_walinet_output_to_ford_through_ram_files(
+    tmp_path, monkeypatch
+):
     data = np.ones((2, 8, 3), dtype=np.complex64)
     mask = np.ones((2, 3), dtype=bool)
     data_path = tmp_path / "data.npy"
@@ -58,9 +60,10 @@ def test_pipeline_passes_walinet_output_to_ford_in_memory(tmp_path, monkeypatch)
             )
 
     class FakeProblem:
-        def __init__(self, config, *, subject_data, subject_mask):
-            captured["data"] = subject_data
-            captured["mask"] = subject_mask
+        def __init__(self, config):
+            io_config = captured["config_dict"]["io_config"]
+            captured["data"] = np.load(io_config["data_path"])
+            captured["mask"] = np.load(io_config["mask_path"])
 
         def _optimize(self):
             captured["optimized"] = True
@@ -111,8 +114,17 @@ def test_pipeline_rejects_mismatching_mask_before_inference(tmp_path):
     mask_path = tmp_path / "mask.npy"
     model_dir = tmp_path / "model"
     config_path = tmp_path / "template.json"
+    basis_path = tmp_path / "basis.mat"
     model_dir.mkdir()
-    config_path.write_text("{}")
+    basis_path.touch()
+    config_path.write_text(
+        json.dumps(
+            {
+                "io_config": {"basis_path": str(basis_path)},
+                "pytorch_config": {"device": "cpu"},
+            }
+        )
+    )
     np.save(data_path, np.ones((2, 3, 8), dtype=np.complex64))
     np.save(mask_path, np.ones((2, 4), dtype=bool))
 
