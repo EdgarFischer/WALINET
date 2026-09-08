@@ -1,0 +1,65 @@
+training_config: "../Training/train_7T.yaml"
+device: "cuda:2"
+
+simulation:
+  subjects:
+    - "Vol1_UCSF"
+    - "Vol2_UCSF"
+    - "Vol3_UCSF"
+    - "Vol4_UCSF"
+    - "Vol5_UCSF"
+  n_spectra_per_subject: 2000
+  batch_size: 1000
+  seed: 20260908
+
+models:
+  - name: "YNet_seed1"
+    family: "ynet"
+    path: "../../models/YNet_ablation"
+    checkpoint: "model_last.pt"
+
+  - name: "YNet_seed2"
+    family: "ynet"
+    path: "../../models/YNet_ablation_Seed_2"
+    checkpoint: "model_last.pt"
+
+  - name: "YNet_seed3"
+    family: "ynet"
+    path: "../../models/YNet_ablation_Seed_3"
+    checkpoint: "model_last.pt"
+    enabled: false
+
+  - name: "UNet_seed1"
+    family: "unet"
+    path: "../../models/UNet_ablation"
+    checkpoint: "model_last.pt"
+
+  - name: "UNet_seed2"
+    family: "unet"
+    path: "../../models/UNet_ablation_Seed_2"
+    checkpoint: "model_last.pt"
+
+  - name: "UNet_seed3"
+    family: "unet"
+    path: "../../models/UNet_ablation_Seed_3"
+    checkpoint: "model_last.pt"
+    enabled: false
+
+  - name: "UNet_parameter_matched_seed1"
+    family: "unet_parameter_matched"
+    path: "../../models/UNet_ablation_parameter_matched"
+    checkpoint: "model_last.pt"
+
+  - name: "UNet_parameter_matched_seed2"
+    family: "unet_parameter_matched"
+    path: "../../models/UNet_ablation_parameter_matched_Seed_2"
+    checkpoint: "model_last.pt"
+
+  - name: "UNet_parameter_matched_seed3"
+    family: "unet_parameter_matched"
+    path: "../../models/UNet_ablation_parameter_matched_Seed_3"
+    checkpoint: "model_last.pt"
+    enabled: false
+
+output:
+  path: "../../results/PaperFig1/model_comparison.h5"

@@ -128,6 +128,76 @@ def test_infer_fid_accepts_numpy_paths_and_saves_output(tmp_path, monkeypatch):
     np.testing.assert_allclose(np.load(output_path), fid, rtol=1e-6, atol=1e-6)
 
 
+def test_infer_fid_supports_ynet_with_projection_operator(tmp_path, monkeypatch):
+    class ZeroNuisanceYNet(torch.nn.Module):
+        def __init__(self, **kwargs):
+            super().__init__()
+
+        def forward(self, spectra, projected_spectra):
+            assert spectra.shape == projected_spectra.shape
+            return torch.zeros_like(spectra)
+
+    model_dir = tmp_path / "ynet"
+    model_dir.mkdir()
+    (model_dir / "model_best.pt").touch()
+    fid = np.ones((2, 3, 8), dtype=np.complex64)
+    operator = np.eye(8, dtype=np.complex64)
+
+    monkeypatch.setattr(
+        fid_inference,
+        "_load_model_and_params",
+        lambda **kwargs: (
+            ZeroNuisanceYNet,
+            {
+                "nLayers": 1,
+                "nFilters": 1,
+                "in_channels": 2,
+                "out_channels": 2,
+                "normalization": "projection_energy",
+            },
+            "ynet",
+            model_dir,
+        ),
+    )
+    monkeypatch.setattr(
+        fid_inference, "_load_checkpoint_state_dict", lambda *args, **kwargs: {}
+    )
+
+    result = fid_inference.infer_fid(
+        fid=fid,
+        model_dir=model_dir,
+        fid_axis=-1,
+        lipid_projection_operator=operator,
+        device="cpu",
+    )
+
+    np.testing.assert_allclose(result, fid, rtol=1e-6, atol=1e-6)
+
+
+def test_infer_fid_ynet_requires_projection_operator(tmp_path, monkeypatch):
+    model_dir = tmp_path / "ynet"
+    model_dir.mkdir()
+
+    monkeypatch.setattr(
+        fid_inference,
+        "_load_model_and_params",
+        lambda **kwargs: (
+            torch.nn.Identity,
+            {"normalization": "max_abs"},
+            "ynet",
+            model_dir,
+        ),
+    )
+
+    with np.testing.assert_raises_regex(ValueError, "lipid_projection_operator"):
+        fid_inference.infer_fid(
+            fid=np.ones((2, 8), dtype=np.complex64),
+            model_dir=model_dir,
+            fid_axis=-1,
+            device="cpu",
+        )
+
+
 def test_infer_combined_csi_can_apply_b0_correction(tmp_path, monkeypatch):
     input_path = tmp_path / "CombinedCSI.mat"
     output_path = tmp_path / "CombinedCSI_WALINET.mat"

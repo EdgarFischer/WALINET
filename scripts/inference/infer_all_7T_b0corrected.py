@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
-    parser.add_argument("--checkpoint", default="model_last.pt")
+    parser.add_argument("--checkpoint", default="model_best.pt")
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--batch-size", type=int, default=200)
     parser.add_argument(

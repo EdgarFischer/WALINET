@@ -8,7 +8,7 @@ acquisition:
   n_timepoints: 840
 
   # Range of simulated native acquisition lengths.
-  min_acquired_n_timepoints: 420
+  min_acquired_n_timepoints: 840
   max_acquired_n_timepoints: 840
 
   # true:
@@ -36,10 +36,10 @@ basis:
 metabolites:
   profiles:
     - config: "Metabos_healthy_7T_2sigma.yaml"
-      probability: 0.7
+      probability: 1
     
-    - config: "Metabos_tumor_7T_2sigma.yaml"
-      probability: 0.3
+    #- config: "Metabos_tumor_7T_2sigma.yaml"
+    #  probability: 0.3
 
   # Global frequency shift in ppm.
   #
@@ -221,4 +221,4 @@ subject_sampling:
 
 
 lipid_projection:
-  enabled: false
+  enabled: true

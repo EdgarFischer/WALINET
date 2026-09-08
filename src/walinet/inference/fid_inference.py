@@ -291,6 +291,96 @@ def _infer_spectra(
     )
 
 
+def _infer_spectra_ynet(
+    spectra: np.ndarray,
+    *,
+    model: torch.nn.Module,
+    lipid_projection_operator: np.ndarray,
+    normalization: str,
+    device: torch.device,
+    batch_size: int,
+    headmask: np.ndarray | None,
+    eps: float,
+) -> np.ndarray:
+    """Run YNet inference with its L2-projected second input."""
+    spatial_shape = spectra.shape[:-1]
+    n_timepoints = spectra.shape[-1]
+    flat = spectra.reshape(-1, n_timepoints)
+
+    operator = np.asarray(lipid_projection_operator, dtype=np.complex64)
+    if operator.shape != (n_timepoints, n_timepoints):
+        raise ValueError(
+            "lipid_projection_operator must have shape "
+            f"({n_timepoints}, {n_timepoints}), got {operator.shape}."
+        )
+    if not np.isfinite(operator).all():
+        raise ValueError("lipid_projection_operator contains NaN or Inf.")
+
+    if headmask is None:
+        selected = np.arange(flat.shape[0])
+    else:
+        headmask = np.asarray(headmask)
+        if headmask.shape != spatial_shape:
+            raise ValueError(
+                f"headmask has shape {headmask.shape}, expected {spatial_shape}."
+            )
+        selected = np.flatnonzero(headmask.reshape(-1) > 0)
+
+    selected_spectra = flat[selected]
+    valid = np.isfinite(selected_spectra).all(axis=1)
+    valid_indices = selected[valid]
+    selected_spectra = selected_spectra[valid]
+    clean = np.zeros(flat.shape, dtype=np.complex64)
+
+    model.to(device).eval()
+    with torch.no_grad():
+        for start in range(0, len(selected_spectra), batch_size):
+            batch_np = selected_spectra[start : start + batch_size]
+            projected_np = batch_np.dot(operator)
+            finite = np.isfinite(projected_np).all(axis=1)
+            if not finite.all():
+                raise ValueError("L2-projected spectra contain NaN or Inf.")
+
+            batch = torch.as_tensor(batch_np, dtype=torch.cfloat, device=device)
+            projected = torch.as_tensor(
+                projected_np,
+                dtype=torch.cfloat,
+                device=device,
+            )
+
+            if normalization == "projection_energy":
+                norm = torch.sqrt(
+                    torch.sum(torch.abs(batch - projected) ** 2, dim=1) + eps
+                )[:, None]
+            elif normalization == "max_abs":
+                norm = torch.amax(torch.abs(batch), dim=1, keepdim=True)
+            else:
+                raise ValueError(
+                    "YNet inference supports 'projection_energy' or 'max_abs' "
+                    f"normalization, got {normalization!r}."
+                )
+
+            norm = torch.clamp(norm, min=eps)
+            normalized = batch / norm
+            projected_normalized = projected / norm
+            network_input = torch.stack(
+                (normalized.real, normalized.imag),
+                dim=1,
+            )
+            network_l2 = torch.stack(
+                (projected_normalized.real, projected_normalized.imag),
+                dim=1,
+            )
+            output = model(network_input, network_l2)[:, :2, :]
+            nuisance = torch.complex(output[:, 0, :], output[:, 1, :]) * norm
+            clean_batch = batch - nuisance
+            clean[
+                valid_indices[start : start + batch_size]
+            ] = clean_batch.cpu().numpy().astype(np.complex64)
+
+    return clean.reshape(*spatial_shape, n_timepoints)
+
+
 def infer_fid(
     fid: Union[np.ndarray, str, Path],
     model_dir: Union[str, Path],
@@ -298,12 +388,13 @@ def infer_fid(
     output_path: Union[str, Path, None] = None,
     fid_axis: Union[int, str] = "auto",
     headmask: Union[np.ndarray, str, Path, None] = None,
+    lipid_projection_operator: Union[np.ndarray, str, Path, None] = None,
     checkpoint: str = "model_best.pt",
     batch_size: int = 200,
     device: Union[str, torch.device, None] = None,
     eps: float = 1e-8,
 ) -> np.ndarray:
-    """Remove nuisance signals from complex FIDs with a trained U-Net.
+    """Remove nuisance signals from complex FIDs with a trained U-Net or YNet.
 
     ``fid`` and ``headmask`` may be NumPy arrays or paths to ``.npy`` files.
 
@@ -421,8 +512,8 @@ def infer_fid(
     )
 
     if (
-        architecture != "unet"
-        or normalization != "max_abs"
+        architecture == "unet"
+        and normalization != "max_abs"
     ):
         raise ValueError(
             "infer_fid currently supports operator-free U-Nets with "
@@ -430,6 +521,27 @@ def infer_fid(
             f"architecture={architecture!r}, "
             f"normalization={normalization!r}."
         )
+
+    if architecture == "ynet":
+        if lipid_projection_operator is None:
+            raise ValueError(
+                "YNet inference requires lipid_projection_operator."
+            )
+        if isinstance(lipid_projection_operator, (str, Path)):
+            operator_path = Path(lipid_projection_operator).expanduser()
+            if operator_path.suffix.lower() != ".npy":
+                raise ValueError(
+                    "lipid_projection_operator paths must point to a .npy file."
+                )
+            lipid_projection_operator = np.load(
+                operator_path,
+                allow_pickle=False,
+            )
+        if not isinstance(lipid_projection_operator, np.ndarray):
+            raise TypeError(
+                "lipid_projection_operator must be a NumPy array, a .npy path, "
+                "or None."
+            )
 
     acquisition = _load_acquisition_info(
         loaded_dir
@@ -502,14 +614,26 @@ def infer_fid(
         )
     )
 
-    clean_spectra = _infer_spectra(
-        spectra,
-        model=model,
-        device=device,
-        batch_size=batch_size,
-        headmask=headmask,
-        eps=eps,
-    )
+    if architecture == "unet":
+        clean_spectra = _infer_spectra(
+            spectra,
+            model=model,
+            device=device,
+            batch_size=batch_size,
+            headmask=headmask,
+            eps=eps,
+        )
+    else:
+        clean_spectra = _infer_spectra_ynet(
+            spectra,
+            model=model,
+            lipid_projection_operator=lipid_projection_operator,
+            normalization=normalization,
+            device=device,
+            batch_size=batch_size,
+            headmask=headmask,
+            eps=eps,
+        )
 
     clean_fid = _spectrum_to_fid(
         clean_spectra
@@ -564,6 +688,7 @@ def infer_combined_csi(
     batch_size: int = 200,
     device: Union[str, torch.device, None] = None,
     eps: float = 1e-8,
+    lipid_projection_operator: Union[np.ndarray, str, Path, None] = None,
     b0_correction: bool = False,
     dat_path: PathLike | None = None,
     julia_executable: PathLike = "julia",
@@ -654,6 +779,7 @@ def infer_combined_csi(
                 batch_size=batch_size,
                 device=device,
                 eps=eps,
+                lipid_projection_operator=lipid_projection_operator,
                 replace_mask=True,
             )
 
@@ -676,6 +802,7 @@ def infer_combined_csi(
         batch_size=batch_size,
         device=device,
         eps=eps,
+        lipid_projection_operator=lipid_projection_operator,
         replace_mask=False,
     )
 
@@ -692,6 +819,7 @@ def _infer_and_save_combined_csi(
     batch_size: int,
     device: Union[str, torch.device, None],
     eps: float,
+    lipid_projection_operator: Union[np.ndarray, str, Path, None],
     replace_mask: bool,
 ) -> Path:
     """Validate prepared CombinedCSI arrays, infer, and save the MAT copy."""
@@ -759,6 +887,7 @@ def _infer_and_save_combined_csi(
         batch_size=batch_size,
         device=device,
         eps=eps,
+        lipid_projection_operator=lipid_projection_operator,
     )
 
     print(
