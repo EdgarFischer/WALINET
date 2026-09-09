@@ -533,6 +533,17 @@ def write_run_summary(
             f"n_batches: {cfg.training.n_batches}\n"
         )
         file.write(
+            f"training_mode: {cfg.training.mode}\n"
+        )
+        if cfg.training.mode == "fixed":
+            file.write(
+                "fixed_n_spectra_per_subject: "
+                f"{cfg.training.fixed_n_spectra_per_subject}\n"
+            )
+            file.write(
+                f"fixed_seed: {cfg.training.fixed_seed}\n"
+            )
+        file.write(
             "spectra_per_epoch: "
             f"{cfg.training.batch_size * cfg.training.n_batches}\n"
         )
@@ -722,6 +733,7 @@ if __name__ == "__main__":
     )
 
     from walinet.training.training import (
+        create_fixed_training_pool,
         create_fixed_validation_batches,
         train_one_epoch,
         validate_one_epoch,
@@ -885,6 +897,14 @@ if __name__ == "__main__":
         int(cfg.validation.seed)
     )
 
+    fixed_pool_generator = None
+    fixed_shuffle_generator = None
+    if cfg.training.mode == "fixed":
+        fixed_pool_generator = torch.Generator(device=device)
+        fixed_pool_generator.manual_seed(int(cfg.training.fixed_seed))
+        fixed_shuffle_generator = torch.Generator(device="cpu")
+        fixed_shuffle_generator.manual_seed(int(cfg.training.fixed_seed))
+
     # ---------------------------------------------------------
     # Fixed validation data
     # ---------------------------------------------------------
@@ -899,12 +919,30 @@ if __name__ == "__main__":
         )
     )
 
+    fixed_training_pool = None
+    if cfg.training.mode == "fixed":
+        assert fixed_pool_generator is not None
+        fixed_training_pool = create_fixed_training_pool(
+            simulator=train_simulator,
+            generator=fixed_pool_generator,
+            n_spectra_per_subject=(
+                cfg.training.fixed_n_spectra_per_subject
+            ),
+            batch_size=cfg.training.batch_size,
+            architecture=architecture,
+            verbose=True,
+        )
+
     print(
         "Training configuration:"
     )
     print(
         "  epochs:                "
         f"{cfg.training.epochs}"
+    )
+    print(
+        "  training mode:          "
+        f"{cfg.training.mode}"
     )
     print(
         "  batches per epoch:     "
@@ -968,6 +1006,12 @@ if __name__ == "__main__":
             verbose=cfg.training.verbose,
             device=device,
             epoch=epoch,
+            fixed_training_pool=fixed_training_pool,
+            fixed_generator=(
+                fixed_shuffle_generator
+                if fixed_training_pool is not None
+                else None
+            ),
         )
 
         val_loss = validate_one_epoch(

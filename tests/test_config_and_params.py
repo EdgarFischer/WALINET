@@ -109,6 +109,9 @@ def test_build_config_reads_current_fields(
     assert cfg.training.batch_size == 2
     assert cfg.training.epochs == 1
     assert cfg.training.n_batches == 1
+    assert cfg.training.mode == "on_the_fly"
+    assert cfg.training.fixed_n_spectra_per_subject == 0
+    assert cfg.training.fixed_seed == 24680
 
     assert cfg.validation.seed == 12345
     assert cfg.validation.n_spectra == 4
@@ -193,6 +196,23 @@ def test_build_config_applies_defaults(
 
     assert cfg.checkpoint.preload is False
     assert cfg.checkpoint.preload_model == ""
+
+
+def test_build_config_reads_fixed_training_mode(
+    tmp_path: Path,
+) -> None:
+    raw = minimal_raw_config(tmp_path)
+    raw["training"]["mode"] = "fixed"
+    raw["training"]["fixed"] = {
+        "n_spectra_per_subject": 17,
+        "seed": 99,
+    }
+
+    cfg = build_config(raw, config_dir=tmp_path)
+
+    assert cfg.training.mode == "fixed"
+    assert cfg.training.fixed_n_spectra_per_subject == 17
+    assert cfg.training.fixed_seed == 99
 
 
 def test_preload_model_is_resolved_relative_to_output_directory(

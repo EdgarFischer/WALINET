@@ -479,6 +479,7 @@ class SimulationResourceSampler:
         *,
         batch_size: int,
         generator: torch.Generator,
+        subject_indices: torch.Tensor | None = None,
     ) -> SampledResources:
         if batch_size <= 0:
             raise ValueError(
@@ -493,14 +494,28 @@ class SimulationResourceSampler:
             device=device,
         )
 
-        water_subject_indices = (
-            _sample_subject_indices(
-                n_subjects=pool.n_subjects,
-                batch_size=batch_size,
-                device=device,
-                generator=generator,
+        if subject_indices is None:
+            water_subject_indices = (
+                _sample_subject_indices(
+                    n_subjects=pool.n_subjects,
+                    batch_size=batch_size,
+                    device=device,
+                    generator=generator,
+                )
             )
-        )
+        else:
+            water_subject_indices = subject_indices.to(
+                device=device,
+                dtype=torch.int64,
+            ).contiguous()
+            if water_subject_indices.shape != (batch_size,):
+                raise ValueError(
+                    "subject_indices must have shape (batch_size,)."
+                )
+            if bool(torch.any(water_subject_indices < 0)) or bool(
+                torch.any(water_subject_indices >= pool.n_subjects)
+            ):
+                raise ValueError("subject_indices contains an invalid subject.")
 
         if self.mixing == "same_subject":
             lipid_subject_indices = (

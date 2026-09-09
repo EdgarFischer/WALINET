@@ -407,6 +407,7 @@ class SpectrumSimulator:
         batch_size: int,
         generator: torch.Generator,
         acquisition_length_override: int | None = None,
+        subject_indices: torch.Tensor | None = None,
     ) -> SimulatedSpectrumBatch:
         """
         Simulate one complete unnormalized complex batch.
@@ -424,6 +425,7 @@ class SpectrumSimulator:
             self.resource_sampler.sample(
                 batch_size=batch_size,
                 generator=generator,
+                subject_indices=subject_indices,
             )
         )
 
@@ -487,6 +489,7 @@ class SpectrumSimulator:
         generator: torch.Generator,
         max_retries: int | None = None,
         acquisition_length_override: int | None = None,
+        subject_indices: torch.Tensor | None = None,
     ) -> PreparedSpectrumBatch:
         """
         Generate one final trainer-ready batch.
@@ -515,6 +518,7 @@ class SpectrumSimulator:
                     acquisition_length_override=(
                         acquisition_length_override
                     ),
+                    subject_indices=subject_indices,
                 )
 
                 return self._prepare_batch(

@@ -222,6 +222,25 @@ def validate_config(
             "training.n_batches must be > 0."
         )
 
+    if cfg.training.mode not in {"on_the_fly", "fixed"}:
+        raise ValueError(
+            "training.mode must be 'on_the_fly' or 'fixed'."
+        )
+
+    if (
+        cfg.training.mode == "fixed"
+        and cfg.training.fixed_n_spectra_per_subject <= 0
+    ):
+        raise ValueError(
+            "training.fixed.n_spectra_per_subject must be > 0 "
+            "when training.mode is 'fixed'."
+        )
+
+    if cfg.training.fixed_seed < 0:
+        raise ValueError(
+            "training.fixed.seed must be >= 0."
+        )
+
     # ---------------------------------------------------------
     # Validation
     # ---------------------------------------------------------
@@ -430,6 +449,10 @@ def build_config(
     # Training
     # ---------------------------------------------------------
     training_raw = raw["training"]
+    fixed_training_raw = training_raw.get(
+        "fixed",
+        {},
+    )
 
     training = TrainingCfg(
         batch_size=int(
@@ -445,6 +468,24 @@ def build_config(
             training_raw.get(
                 "verbose",
                 False,
+            )
+        ),
+        mode=str(
+            training_raw.get(
+                "mode",
+                "on_the_fly",
+            )
+        ).strip().lower(),
+        fixed_n_spectra_per_subject=int(
+            fixed_training_raw.get(
+                "n_spectra_per_subject",
+                0,
+            )
+        ),
+        fixed_seed=int(
+            fixed_training_raw.get(
+                "seed",
+                24680,
             )
         ),
     )

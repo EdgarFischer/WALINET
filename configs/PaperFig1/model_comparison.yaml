@@ -8,7 +8,7 @@ simulation:
     - "Vol3_UCSF"
     - "Vol4_UCSF"
     - "Vol5_UCSF"
-  n_spectra_per_subject: 2000
+  n_spectra_per_subject: 10000
   batch_size: 1000
   seed: 20260908
 

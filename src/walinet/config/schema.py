@@ -61,6 +61,9 @@ class TrainingCfg:
     epochs: int
     n_batches: int
     verbose: bool
+    mode: str
+    fixed_n_spectra_per_subject: int
+    fixed_seed: int
 
 
 @dataclass(frozen=True)

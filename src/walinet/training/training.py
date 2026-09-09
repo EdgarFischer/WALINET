@@ -404,6 +404,87 @@ def create_fixed_validation_batches(
     )
 
 
+@torch.no_grad()
+def create_fixed_training_pool(
+    *,
+    simulator,
+    generator: torch.Generator,
+    n_spectra_per_subject: int,
+    batch_size: int,
+    architecture: str,
+    verbose: bool = True,
+) -> FixedNetworkBatch:
+    """Generate an exactly subject-balanced training pool once."""
+    architecture = normalize_architecture(architecture)
+    n_spectra_per_subject = int(n_spectra_per_subject)
+    batch_size = int(batch_size)
+    if n_spectra_per_subject <= 0 or batch_size <= 0:
+        raise ValueError(
+            "n_spectra_per_subject and batch_size must be > 0."
+        )
+
+    inputs: list[torch.Tensor] = []
+    targets: list[torch.Tensor] = []
+    l2_inputs: list[torch.Tensor] = []
+
+    if verbose:
+        print("Generating fixed training pool:")
+        print(f"  subjects:           {simulator.pool.n_subjects}")
+        print(f"  spectra per subject: {n_spectra_per_subject}")
+
+    for subject_index in range(simulator.pool.n_subjects):
+        generated = 0
+        while generated < n_spectra_per_subject:
+            current_batch_size = min(
+                batch_size,
+                n_spectra_per_subject - generated,
+            )
+            subject_indices = torch.full(
+                (current_batch_size,),
+                subject_index,
+                dtype=torch.int64,
+                device=simulator.device,
+            )
+            simulated = simulator.simulate(
+                batch_size=current_batch_size,
+                generator=generator,
+                subject_indices=subject_indices,
+            )
+            inputs.append(simulated.network_input.detach().cpu())
+            targets.append(simulated.network_target.detach().cpu())
+            if architecture == "ynet" and simulated.network_l2 is not None:
+                l2_inputs.append(simulated.network_l2.detach().cpu())
+            generated += current_batch_size
+
+        if verbose:
+            print(
+                f"  Subject {subject_index + 1:03d}/"
+                f"{simulator.pool.n_subjects:03d}: {generated}"
+            )
+
+    fixed_pool = FixedNetworkBatch(
+        network_input=torch.cat(inputs, dim=0).contiguous(),
+        network_target=torch.cat(targets, dim=0).contiguous(),
+        network_l2=(
+            torch.cat(l2_inputs, dim=0).contiguous()
+            if l2_inputs
+            else None
+        ),
+    )
+    validate_fixed_batch(batch=fixed_pool, architecture=architecture)
+
+    expected_size = simulator.pool.n_subjects * n_spectra_per_subject
+    if fixed_pool.batch_size != expected_size:
+        raise RuntimeError(
+            "Fixed training-pool size does not match the requested size."
+        )
+
+    if verbose:
+        print(f"Fixed training pool ready: {fixed_pool.batch_size} spectra")
+
+    return fixed_pool
+
+
 def train_one_epoch(
     *,
     model: torch.nn.Module,
@@ -417,16 +498,14 @@ def train_one_epoch(
     verbose: bool,
     device: torch.device,
     epoch: int,
+    fixed_training_pool: FixedNetworkBatch | None = None,
+    fixed_generator: torch.Generator | None = None,
 ) -> tuple[
     torch.nn.Module,
     float,
 ]:
     """
-    Train for one epoch using freshly simulated spectra.
-
-    Every iteration generates a completely new batch. There is no
-    Dataset, DataLoader, stored training set, or additional
-    augmentation stage.
+    Train for one epoch from fresh simulations or a fixed pool.
     """
     architecture = normalize_architecture(
         architecture
@@ -461,6 +540,22 @@ def train_one_epoch(
             f"  model:     {device}"
         )
 
+    if fixed_training_pool is not None:
+        validate_fixed_batch(
+            batch=fixed_training_pool,
+            architecture=architecture,
+        )
+        if fixed_generator is None:
+            raise ValueError(
+                "fixed_generator is required for fixed-pool training."
+            )
+        fixed_pool_size = fixed_training_pool.batch_size
+        fixed_permutation = torch.randperm(
+            fixed_pool_size,
+            generator=fixed_generator,
+        )
+        fixed_position = 0
+
     model.train()
 
     total_weighted_loss = 0.0
@@ -491,36 +586,57 @@ def train_one_epoch(
                 .max_acquired_n_timepoints
             )
 
-        simulated = simulator.simulate(
-            batch_size=batch_size,
-            generator=generator,
-            acquisition_length_override=(
-                acquisition_length_override
-            ),
-        )
+        if fixed_training_pool is None:
+            simulated = simulator.simulate(
+                batch_size=batch_size,
+                generator=generator,
+                acquisition_length_override=(
+                    acquisition_length_override
+                ),
+            )
+            network_input = simulated.network_input
+            network_target = simulated.network_target
+            network_l2 = simulated.network_l2
+            retries_used = simulated.retries_used
+        else:
+            index_parts: list[torch.Tensor] = []
+            remaining = batch_size
+            while remaining:
+                available = fixed_pool_size - fixed_position
+                take = min(remaining, available)
+                index_parts.append(
+                    fixed_permutation[fixed_position:fixed_position + take]
+                )
+                fixed_position += take
+                remaining -= take
+                if fixed_position == fixed_pool_size:
+                    fixed_permutation = torch.randperm(
+                        fixed_pool_size,
+                        generator=fixed_generator,
+                    )
+                    fixed_position = 0
+            fixed_indices = torch.cat(index_parts)
+            network_input = fixed_training_pool.network_input.index_select(
+                0, fixed_indices
+            ).to(device=device)
+            network_target = fixed_training_pool.network_target.index_select(
+                0, fixed_indices
+            ).to(device=device)
+            network_l2 = (
+                None
+                if fixed_training_pool.network_l2 is None
+                else fixed_training_pool.network_l2.index_select(
+                    0, fixed_indices
+                ).to(device=device)
+            )
+            retries_used = 0
 
-        if torch.device(
-            simulated.device
-        ) != torch.device(
-            device
-        ):
+        if torch.device(network_input.device) != torch.device(device):
             raise RuntimeError(
-                "Simulated batch is on the wrong device:\n"
-                f"  batch: {simulated.device}\n"
+                "Training batch is on the wrong device:\n"
+                f"  batch: {network_input.device}\n"
                 f"  model: {device}"
             )
-
-        network_input = (
-            simulated.network_input
-        )
-
-        network_target = (
-            simulated.network_target
-        )
-
-        network_l2 = (
-            simulated.network_l2
-        )
 
         if (
             architecture == "ynet"
@@ -577,9 +693,7 @@ def train_one_epoch(
             loss.detach().item()
         )
 
-        current_batch_size = int(
-            simulated.batch_size
-        )
+        current_batch_size = int(network_input.shape[0])
 
         total_weighted_loss += (
             loss_value
@@ -611,18 +725,19 @@ def train_one_epoch(
                     n_batches,
                     loss_value,
                     batch_time,
-                    simulated.retries_used,
+                    retries_used,
                 )
             )
 
         del (
-            simulated,
             network_input,
             network_target,
             network_l2,
             prediction,
             loss,
         )
+        if fixed_training_pool is None:
+            del simulated
 
     if total_spectra <= 0:
         raise RuntimeError(
